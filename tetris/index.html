@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Tetris</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js" integrity="sha512-bLT0Qm9VnAYZDflyKcBaQ2gg0hSYNQrJ8RilYldYQ1FxQYoCLtUjuuRuZo+fjqhx/qtq/1itJ0C2ejDxltZVFg==" crossorigin="anonymous"></script>
+    <style>
+body {
+    margin: 0;
+    overflow: hidden;
+}
+button {
+    position: absolute;
+    bottom: 10%;
+    width: 5%;
+    height: 5%;
+}
+#lButton {
+    left: 10%;
+}
+#rButton {
+    right: 30%;
+}
+    </style>
+</head>
+
+<body>
+
+    <canvas id="myCanvas"></canvas>
+
+    <!--
+    <button type="button" id="lButton" onclick="left()">&#8592;</button>
+    <button type="button" id="rButton" onclick="right()">&#8594;</button>
+    -->
+    <!--    <button type="button" id="dButton">Drop</button> -->
+
+    <script src="tetris.js"></script>
+
+</body>
+
+</html>
