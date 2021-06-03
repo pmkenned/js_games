@@ -11,54 +11,11 @@ body {
     padding: 0;
     overflow: hidden;
 }
-button {
-    position: absolute;
-    border: 0;
-    background: rgba(0,0,0,0.0);
-    color: white;
-    font-weight: bold;
-}
-#leftBtn {
-    left: 0;
-    top: 0;
-    width: 10vw;
-    height: 100vh;
-}
-#rightBtn {
-    right: 0;
-    bottom: 0;
-    width: 10vw;
-    height: 100vh;
-}
-#forwardBtn {
-    left: 10vw;
-    top: 0;
-    width: 80vw;
-    height: 10vh;
-}
-#backBtn {
-    left: 10vw;
-    bottom: 0;
-    width: 80vw;
-    height: 10vh;
-}
-#fireBtn {
-    left: 10vw;
-    top: 10vh;
-    width: 80vw;
-    height: 80vh;
-}
 </style>
 </head>
 
 <body>
     <canvas id="myCanvas"></canvas>
-
-    <button id="leftBtn"    onmousedown="turnLeft()"    onmouseup="stopLeft()"      >&lt;</button>
-    <button id="rightBtn"   onmousedown="turnRight()"   onmouseup="stopRight()"     >&gt;</button>
-    <button id="forwardBtn" onmousedown="forward()"     onmouseup="stopForward()"   >^</button>
-    <button id="backBtn"    onmousedown="back()"        onmouseup="stopBack()"      >v</button>
-    <button id="fireBtn"    onmousedown="fire()"        onmouseup="stopFire()"      >&nbsp;</button>
 
     <script>
 
@@ -74,24 +31,24 @@ window.mobileCheck = function() {
 
 
 // TODO:
-// * create asteroids off screen (take into account its current position)
-// * add mobile support
+// CODE SMELL:
 // * handle angles more elegantly
-// * add polygons to ships, asteroids, etc.
-// * make things wrap-around space-wise?
-// * randomize asteroids
-// * spawn/delete asteroids
-// * zoom in/out
-// * simulate inputs for testing
-// * add single-step frame
-// * ship-asteroid collision detection
-// * generic polygon collision detection
-// * explode asteroid
-// * engine trail
+// * use IIFE
+// * use object pool for asteroisd
+// DEBUG:
+// * have way to record inputs
+// * make const variables into lets
+// * on-screen info
+// GAMEPLAY:
+// * menu system
+// * tutorial
+// * difficulty
+// * collision warning
 // * sound effects
 // * score
-// * collision-detection returns data structure
-// * spatial-data structures?
+// * engine exhaust
+// * afterburner
+// * money?
 // * fuel?
 // * shields?
 // * guns?
@@ -104,6 +61,28 @@ window.mobileCheck = function() {
 //   * rescue
 //   * escort
 //   * protect bombers
+// * game play modes:
+//   * dog fight
+//   * racing
+// ENGINE:
+// * add polygons to ships, asteroids, etc.
+// * ship-asteroid collision detection
+// * generic polygon collision detection
+// * collision-detection returns data structure
+// * use spatial-data structures for collision detection?
+// * add mobile support
+
+/*
+ * Mission 1: destroy N asteroids near station
+ * Mission 2: deliver cargo from one station to another
+ * Mission 3: collect resource from asteroids
+ * Mission 4: protect station from attackers
+ * Mission 5: recon enemy station
+ * Mission 6: escort bombers to enemy station
+ * Mission 7: protect evacuees
+ * Mission 8: find and rescue
+ */
+
 
 const onMobile = mobileCheck();
 
@@ -115,7 +94,7 @@ const MAX_FRAMETIME = 250;
 
 const SHOT_INTERVAL = 25;
 const MAX_SHOTS = 10;
-const MAX_ASTEROIDS = 1000;
+const MAX_ASTEROIDS = 100;
 const MIN_AST_RADIUS = 1;
 const MIN_AST_DISTANCE = 45;
 const MAX_AST_DISTANCE = 100;
@@ -138,6 +117,9 @@ let frame_count;
 let sim_rate;
 let prevTime;
 
+let rAF_sum = 0;
+let rAF_cnt = 0;
+
 Number.prototype.fixed = function(n) { n = n || 3; return parseFloat(this.toFixed(n)); };
 
 let perf = {
@@ -157,26 +139,22 @@ perf.stop = function() {
 
     if (this.cnt % this.reset_n == 0) {
         const avg = this.dt_sum / this.reset_n;
-        console.log('avg ms/rAF: ' + avg.fixed());
+        //console.log('avg ms/rAF: ' + avg.fixed());
         this.dt_sum = 0;
     }
 };
 
 let currState = {};
+let savedState = {};
 let pressed = {};
 
-function turnLeft()     { pressed['ArrowLeft'] = true; }
-function turnRight()    { pressed['ArrowRight'] = true; }
-function stopLeft()     { pressed['ArrowLeft'] = false; }
-function stopRight()    { pressed['ArrowRight'] = false; }
+function saveState() {
+    savedState = JSON.parse(JSON.stringify(currState));
+}
 
-function forward()      { pressed['ArrowUp'] = true; }
-function back()         { pressed['ArrowDown'] = true; }
-function fire()         { pressed[' '] = true; }
-
-function stopForward()  { pressed['ArrowUp'] = false; }
-function stopBack()     { pressed['ArrowDown'] = false; }
-function stopFire()     { pressed[' '] = false; }
+function restoreState() {
+    currState = JSON.parse(JSON.stringify(savedState));
+}
 
 let inputsToSims = {
     60  : [ { key: 'ArrowUp',     mode: 'down' }, ],
@@ -219,7 +197,7 @@ function Asteroid(x, y, r, xv, yv, theta, rv) {
     this.active = true;
     this.shape = [];
     for (let i = 0; i < 8; i++) {
-        this.shape.push(randMargin(10));
+        this.shape.push(randMargin(50));
     }
 }
 
@@ -275,11 +253,11 @@ function draw() {
         ctx.lineTo( 30,   0);
         ctx.lineTo(-30, -30);
         ctx.closePath();
-        ctx.lineWidth = 1;
+        ctx.lineWidth = 1/zoom;
         ctx.strokeStyle = "gray";
         ctx.stroke();
-        ctx.fillStyle = "gray";
-        ctx.fill();
+        //ctx.fillStyle = "gray";
+        //ctx.fill();
 
     ctx.restore();
 
@@ -288,7 +266,7 @@ function draw() {
         if (shot.active) {
             ctx.beginPath();
             const shotScreen = spaceToScreen(shot.pos);
-            ctx.arc(shotScreen.x, shotScreen.y, 3, 0, Math.PI*2.0);
+            ctx.arc(shotScreen.x, shotScreen.y, 3/zoom, 0, Math.PI*2.0);
             ctx.fillStyle = "yellow";
             ctx.fill();
         }
@@ -309,7 +287,7 @@ function draw() {
                 ctx.lineTo(r_px*a.shape[i]*Math.cos(i*Math.PI/4), r_px*a.shape[i]*Math.sin(i*Math.PI/4));
             }
             ctx.closePath();
-            ctx.lineWidth = 1;
+            ctx.lineWidth = 1/zoom;
             //ctx.fillStyle = "red";
             //ctx.fill();
             ctx.strokeStyle = "red";
@@ -341,8 +319,12 @@ function process_input(t_ms, dt_ms) {
         zoom /= ZOOM_RATE;
     }
 
-    if (pressed['='] || pressed ['+']) {
+    if (pressed['+']) {
         zoom *= ZOOM_RATE;
+    }
+
+    if (pressed['=']) {
+        zoom = 1.0;
     }
 
     if (pressed[' ']) {
@@ -439,8 +421,8 @@ function insideRect(coord, rect) {
 function createAsteroids() {
     const ship_pos = currState.ship.pos;
     while (currState.asteroids.length < MAX_ASTEROIDS) {
-        const new_x = currState.ship.pos.x + 200*(Math.random()-0.5);
-        const new_y = currState.ship.pos.y + 200*(Math.random()-0.5);
+        const new_x = currState.ship.pos.x + MAX_AST_DISTANCE*2*(Math.random()-0.5);
+        const new_y = currState.ship.pos.y + MAX_AST_DISTANCE*2*(Math.random()-0.5);
         //if (!insideRect({x: new_x, y: new_y}, {x: currState.ship.pos.x-MIN_AST_DISTANCE/2, y: currState.ship.pos.y-MIN_AST_DISTANCE/2, w: MIN_AST_DISTANCE, h: MIN_AST_DISTANCE})) {
         const ship2a = { x : new_x - ship_pos.x, y: new_y - ship_pos.y };
         if (mag(ship2a) > MIN_AST_DISTANCE) {
@@ -507,6 +489,14 @@ function loop(time) {
     let frameTime = time - prevTime;
     prevTime = time;
 
+    rAF_sum += frameTime;
+    rAF_cnt++;
+    if (rAF_sum >= 1000) {
+        //console.log(`fps: ${rAF_cnt}`);
+        rAF_sum = 0;
+        rAF_cnt = 0;
+    }
+
     if (!paused || advanceFrame) {
         frame_count++;
 
@@ -548,6 +538,10 @@ function keydown(e) {
     pressed[e.key] = true;
     if (e.key == 'Escape') {
         paused = !paused;
+    } else if (pressed['s']) {
+        saveState();
+    } else if (pressed['d']) {
+        restoreState();
     } else if (e.key == ',' || e.key == '.') {
         if (e.key == ',') {
             sim_rate /= 2;
@@ -573,6 +567,9 @@ function reset() {
 
     //Math.seedrandom(Date.now());
     Math.seedrandom('');
+
+    rAF_sum = 0;
+    rAF_cnt = 0;
 
     simulateInputs = true;
     zoom = 1.0;
@@ -616,15 +613,6 @@ function reset() {
 
 (function() {
     resize();
-
-    if (onMobile) {
-    } else {
-        document.getElementById('leftBtn').style.display = "none";
-        document.getElementById('rightBtn').style.display = "none";
-        document.getElementById('forwardBtn').style.display = "none";
-        document.getElementById('backBtn').style.display = "none";
-        document.getElementById('fireBtn').style.display = "none";
-    }
 
     window.addEventListener('keydown', keydown);
     window.addEventListener('keyup', keyup);
