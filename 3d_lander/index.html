@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+<style>
+body {
+	margin: 0;
+	overflow:hidden;
+}
+.hud {
+	position: absolute;
+	left: 50px;
+	width: 100%;
+	text-align: left;
+	z-index: 100;
+	display:block;
+	font-family: 'Courier New', Courier, 'Lucida Sans Typewriter', 'Lucida Typewriter', monospace;
+	font-size: 40px;
+	font-weight: bold;
+	color: #00ff00;
+	/*text-shadow: -1px 0 white, 0 1px white, 1px 0 white, 0 -1px white;
+	text-shadow: 2px 2px #f0f0f0; */
+	-webkit-text-stroke-width: 2px;
+	-webkit-text-stroke-color: #000000;
+}
+#hud_div {
+	top: 10px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="hud" id="hud_div">
+Vert Vel:<span id="vert_vel_num">0</span><br>
+TWR:<span id="twr_num">0</span>
+</div>
+
+<script src="cannon.js"></script>
+<script src="three.min.js"></script>
+<script src="CannonDebugRenderer.js"></script>
+<script src="GLTFLoader.js"></script>
+<script src="threex.windowresize.js"></script>
+
+<script>
+
+// coding TODOs:
+// * use THREE.Group class to group legs of spaceship with spaceship
+// * window resize
+
+// feature TODOs:
+// * indicators
+//   * fuel
+//   * vertical speed
+//   * altitude
+//   * throttle (slash twr)
+//   * navball
+// * finite fuel
+// * joystick & controls
+// * lights
+// * exhaust sprite
+// * landing pads
+// * cargo
+// * recording and playback
+// * spherical planet
+// * terrain generation
+// * save/load
+// * menu
+// * atmosphere & water
+// * space background: have it move with you
+// * cockpit view
+// * structures
+// * staging
+// * textures, bump maps, etc.
+// * 
+
+var hf_num = 30;
+var hfs = 8;
+
+var boxMass = 5; // kg
+
+var paused = false;
+
+var camera_mode = '1';
+
+var controls = {};
+controls.forward = 'i';
+controls.backward = 'k';
+controls.left = 'j';
+controls.right = 'l';
+controls.ccw = 'u';
+controls.cw = 'o';
+controls.zero = 'z';
+controls.tup = 'c';
+controls.tdn = 'x';
+controls.full = 'v';
+controls.hover = 'h';
+
+var camera, scene, renderer;
+
+var geometry, material, mesh;
+var boxGeom, boxMat, boxMesh;
+var polyGeom, polyMat, polyMesh;
+var p_geometry;
+
+var legMeshes = [];
+
+var sound;
+
+var group, textMesh1, textGeo, text_materials;
+var text = 'Hello three.js!';
+
+init();
+
+// THREE init
+function init() {
+
+	camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 0.01, 6000 );
+	camera.position.z = 7;
+	camera.position.y = -5;
+	
+	//camera.rotation.order = 'YXZ'; // default is 'XYZ'
+	camera.rotation.order = 'ZXY'; // default is 'XYZ'
+
+	scene = new THREE.Scene();
+	
+	// sphere
+	geometry = new THREE.SphereGeometry( 1.0, 32, 32 );
+	material = new THREE.MeshNormalMaterial();
+	mesh = new THREE.Mesh( geometry, material );
+	//scene.add( mesh );
+	
+	// load a texture, set wrap mode to repeat
+	var texture = new THREE.TextureLoader().load( "box.jpg" );
+	texture.wrapS = THREE.RepeatWrapping;
+	texture.wrapT = THREE.RepeatWrapping;
+	texture.repeat.set( 1, 1 );
+	
+	// White directional light at half intensity shining from the top.
+	var directionalLight = new THREE.DirectionalLight( 0xa0a0a0 );
+	directionalLight.position.set( 0, -100, 50 );
+	directionalLight.target.position.set( 0,-30,0 );
+	directionalLight.castShadow = true;
+	scene.add( directionalLight );
+	scene.add(directionalLight.target);
+	
+	//// White directional light at half intensity shining from the top.
+	//var directionalLight = new THREE.DirectionalLight( 0xa0a0a0 );
+	//directionalLight.position.set( 0, 0, 50 );
+	//directionalLight.castShadow = true;
+	//scene.add( directionalLight );
+	
+	//Set up shadow properties for the light
+	directionalLight.shadow.mapSize.width = 2048; // default: 512
+	directionalLight.shadow.mapSize.height = 2048; // default
+	directionalLight.shadow.camera.left = -hf_num*hfs/2;    // default
+	directionalLight.shadow.camera.right = hf_num*hfs/2;    // default
+	//directionalLight.shadow.camera.top = hf_num*hfs/2;    // default
+	//directionalLight.shadow.camera.bottom = -hf_num*hfs/2;    // default
+	directionalLight.shadow.camera.top = hf_num*hfs/3;    // default
+	directionalLight.shadow.camera.bottom = -hf_num*hfs/4;    // default
+	directionalLight.shadow.camera.near = 0.5;    // default
+	//directionalLight.shadow.camera.far = 55;     // default
+	directionalLight.shadow.camera.far = 200;     // default
+	
+	var helper = new THREE.CameraHelper( directionalLight.shadow.camera );
+	//scene.add( helper );
+
+	// AMBIENT LIGHT
+	var amb_light = new THREE.AmbientLight( 0x202020 ); // soft white light
+	scene.add( amb_light );
+	
+	// POINT LIGHT
+	var light = new THREE.PointLight( 0xa0a0a0 );
+	light.position.set( 0, 0, 10 );
+	//scene.add( light );
+	
+	// TODO: make this not wash out the surface textures
+	var light2 = new THREE.PointLight(0xffffff);
+	light2.position.set(0,0,-5);
+	scene.add(light2);
+	
+	boxGeom = new THREE.BoxGeometry( 1.0, 1.0, 0.5 );
+	//boxMat = new THREE.MeshNormalMaterial();
+	boxMat = new THREE.MeshPhongMaterial({map: texture, overdraw: 0.5});
+	boxMesh = new THREE.Mesh( boxGeom, boxMat );
+	scene.add( boxMesh );
+	
+	boxMesh.add( sound );
+	
+	var legGeom = new THREE.CylinderGeometry(0.05, 0.05, 1);
+	var legMat = new THREE.MeshNormalMaterial();
+	for(var i=0; i<4; i++) {
+		legMeshes.push(new THREE.Mesh( legGeom, legMat ));
+	}
+	for(var i=0; i<legMeshes.length; i++) {
+		scene.add( legMeshes[i] );
+	}
+	
+
+	// plane
+	p_geometry = new THREE.PlaneGeometry( (hf_num-1)*hfs, (hf_num-1)*hfs, (hf_num-1), (hf_num-1) );
+	
+	renderer = new THREE.WebGLRenderer( { antialias: true } );
+	renderer.setSize( window.innerWidth, window.innerHeight );
+	
+	renderer.shadowMap.enabled = true;
+	renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+	
+	document.body.appendChild( renderer.domElement );
+	
+	var winResize = new THREEx.WindowResize(renderer, camera);
+}
+
+// Setup our world
+var world = new CANNON.World();
+//world.gravity.set(0, 0, -9.82); // m/s²
+var g = 1;
+world.gravity.set(0, 0, -g); // m/s²
+
+// Create a box
+var boxMaterial = new CANNON.Material();
+var boxBody = new CANNON.Body({
+   mass: 5, // kg
+   position: new CANNON.Vec3(0.0, -100.0, 30.0), // m
+   shape: new CANNON.Box(new CANNON.Vec3(0.5, 0.5, 0.25)),
+   material: boxMaterial
+});
+boxBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1,0,0), Math.PI / 2-.1);
+boxBody.velocity.set(0,15,0); // initial velocity
+boxBody.linearDamping = 0.01;
+boxBody.angularDamping = 0.7;
+var czrots = [1,7,3,5];
+var cxs = [-0.7, 0.7, -0.7, 0.7];
+var cys = [0.7, 0.7, -0.7, -0.7];
+for(var i=0; i<4; i++) {
+	var legShape = new CANNON.Cylinder(0.05, 0.05, 1, 5);
+	var legQuat = new CANNON.Quaternion();
+	legQuat.setFromEuler(Math.PI/4,0,czrots[i]*Math.PI/4,'ZXY');
+	boxBody.addShape(legShape, new CANNON.Vec3(cxs[i], cys[i], -0.5), legQuat);
+}
+world.addBody(boxBody);
+
+// Create a plane
+var groundMaterial = new CANNON.Material();
+var groundBody = new CANNON.Body({
+    mass: 0, // mass == 0 makes the body static
+	material: groundMaterial
+});
+var groundShape = new CANNON.Plane();
+groundBody.addShape(groundShape);
+//world.addBody(groundBody);
+
+//var mat1_ground = new CANNON.ContactMaterial(groundMaterial, sphereMaterial, { friction: 0.2, restitution: 0.5 });
+//world.addContactMaterial(mat1_ground);
+
+var mat2_ground = new CANNON.ContactMaterial(groundMaterial, boxMaterial, { friction: 0.2, restitution: 0.3 });
+//world.addContactMaterial(mat2_ground);
+
+// heightfield
+            // Create a matrix of height values
+            var matrix = [];
+            var sizeX = hf_num,
+                sizeY = hf_num;
+            for (var i = 0; i < sizeX; i++) {
+                matrix.push([]);
+                for (var j = 0; j < sizeY; j++) {
+                    var height = Math.cos(i/sizeX * Math.PI * 2)*Math.cos(j/sizeY * Math.PI * 2) +2;
+                    if(i===0 || i === sizeX-1 || j===0 || j === sizeY-1)
+                        height = 3;
+					height *= 5; // scaling factor
+                    matrix[i].push(height);
+					p_geometry.vertices[(sizeY-j-1)*sizeX+i].z = height;
+					//p2_geometry.vertices[(sizeY-j-1)*sizeX+i].z = height;
+                }
+            }
+			p_geometry.verticesNeedUpdate = true; // not sure if this is needed
+			//p2_geometry.verticesNeedUpdate = true; // not sure if this is needed
+
+            // Create the heightfield
+			var hfShape = new CANNON.Heightfield(matrix, {
+				elementSize: hfs
+			});
+			var hfBody = new CANNON.Body({ mass: 0 });
+			hfBody.addShape(hfShape);
+			hfBody.position.set(-hfs*(hf_num-1)/2, -hfs*(hf_num-1)/2, 0);
+			world.add(hfBody);
+
+// end heightfield
+
+	// load a texture, set wrap mode to repeat
+	var moon_texture = new THREE.TextureLoader().load( "moon.jpg" );
+	moon_texture.wrapS = THREE.RepeatWrapping;
+	moon_texture.wrapT = THREE.RepeatWrapping;
+	moon_texture.repeat.set( 3, 3 );
+	
+	var surface_mat = new THREE.MeshPhongMaterial( { map: moon_texture } );
+	var surface = new THREE.Mesh( p_geometry, surface_mat );
+	scene.add( surface );
+	
+	boxMesh.castShadow = true;
+	surface.receiveShadow = true;
+
+
+var fixedTimeStep = 1.0 / 60.0; // seconds
+var maxSubSteps = 3;
+
+var camera_motion = {};
+camera_motion.forward = false;
+camera_motion.backward = false;
+camera_motion.left = false;
+camera_motion.right = false;
+camera_motion.up = false;
+camera_motion.down = false;
+var camera_phi = 0.0;
+//var camera_theta = -Math.PI/2.0;
+var camera_theta = -70*Math.PI/180.0;
+var camera_dist = 5;
+
+var max_level = 30;
+var thrust = {};
+thrust.level = 0;
+thrust.up = false;
+thrust.down = false;
+thrust.left = false;
+thrust.right = false;
+thrust.cw = false;
+thrust.ccw = false;
+
+var sound_playing = false;
+
+document.addEventListener('wheel', (event) => {
+	if(event.deltaY > 0) {
+		camera_dist *= 1.1;
+	}
+	else {
+		camera_dist /= 1.1;
+	}
+});
+
+document.addEventListener('keydown', (event) => {
+	const keyName = event.key;
+	// camera controls
+	if(keyName == 'w') {
+		camera_motion.forward = true;
+	}
+	else if (keyName == 'a') {
+		camera_motion.left = true;
+	}
+	else if (keyName == 'd') {
+		camera_motion.right = true;
+	}
+	else if (keyName == 's') {
+		camera_motion.backward = true;
+	}
+	else if (keyName == 'e') {
+		camera_motion.down = true;
+	}
+	else if (keyName == 'q') {
+		camera_motion.up = true;
+	}
+	else if(keyName == '1') {
+		camera_mode = '1';
+	}
+	else if(keyName == '2') {
+		camera_mode = '2';
+	}
+	else if(keyName == '3') {
+		camera_mode = '3';
+	}
+	// ship controls
+	else if (keyName == controls.backward) {
+		thrust.up = true;
+	}
+	else if (keyName == controls.forward) {
+		thrust.down = true;
+	}
+	else if (keyName == controls.left) {
+		thrust.left = true;
+	}
+	else if (keyName == controls.right) {
+		thrust.right = true;
+	}
+	else if (keyName == controls.hover) {
+		//thrust.level = max_level/2;
+		thrust.level = 10;
+		if(!sound_playing) {
+			//sound.play();
+			sound_playing = true;
+		}
+	}
+	else if (keyName == controls.ccw) {
+		thrust.ccw = true;
+	}
+	else if (keyName == controls.cw) {
+		thrust.cw = true;
+	}
+	else if (keyName == controls.zero) {
+		thrust.level = 0;
+		//sound.stop();
+		sound_playing = false;
+	}
+	else if (keyName == controls.tdn) {
+		if(thrust.level > 0) {
+			thrust.level--;
+			var volume = sound.getVolume();
+			sound.setVolume(volume*0.7);
+			if(thrust.level == 0) {
+				//sound.stop();
+				sound_playing = false;
+			}
+		}
+	}
+	else if (keyName == controls.tup) {
+		if(thrust.level < max_level) {
+			thrust.level++;
+			var volume = sound.getVolume();
+			sound.setVolume(volume/0.7);
+			if(!sound_playing) {
+				//sound.play();
+				sound_playing = true;
+			}
+		}
+	}
+	else if (keyName == controls.full) {
+		thrust.level = max_level;
+		sound_playing = true;
+	}
+	else if (keyName == 'r') {
+		// TODO: reset
+		boxBody.position.set(0,-100,30);
+		boxBody.velocity.set(0,15,2);
+	}
+	else if (keyName == 'p') {
+		paused = !paused;
+	}
+	else if (keyName == '-') {
+		camera_dist *= 1.1;
+	}
+	else if (keyName == '=') {
+		camera_dist /= 1.1;
+	}
+	else {
+		console.log(keyName);
+	}
+});
+
+document.addEventListener('keyup', (event) => {
+	const keyName = event.key;
+	// camera controls
+	if(keyName == 'w') {
+		camera_motion.forward = false;
+	}
+	else if (keyName == 'a') {
+		camera_motion.left = false;
+	}
+	else if (keyName == 'd') {
+		camera_motion.right = false;
+	}
+	else if (keyName == 's') {
+		camera_motion.backward = false;
+	}
+	else if (keyName == 'e') {
+		camera_motion.down = false;
+	}
+	else if (keyName == 'q') {
+		camera_motion.up = false;
+	}
+	// ship controls
+	else if (keyName == controls.backward) {
+		thrust.up = false;
+	}
+	else if (keyName == controls.forward) {
+		thrust.down = false;
+	}
+	else if (keyName == controls.left) {
+		thrust.left = false;
+	}
+	else if (keyName == controls.right) {
+		thrust.right = false;
+	}
+	else if (keyName == controls.ccw) {
+		thrust.ccw = false;
+	}
+	else if (keyName == controls.cw) {
+		thrust.cw = false;
+	}
+});
+
+var mouseDown = false;
+var mouseX = null;
+var mouseY = null;
+var mouse_dx = 0;
+var mouse_dy = 0;
+
+document.addEventListener('mousedown', (event) => {
+	const clientX = event.clientX;
+	const clientY = event.clientY;
+	mouseX = clientX;
+	mouseY = clientY;
+	mouseDown = true;
+});
+
+document.addEventListener('mouseup', (event) => {
+	mouseDown = false;
+	mouse_dx = 0;
+	mouse_dy = 0;
+});
+
+document.addEventListener('mousemove', (event) => {
+	const clientX = event.clientX;
+	const clientY = event.clientY;
+	if(mouseDown) {
+		mouse_dx = clientX - mouseX;
+		mouse_dy = clientY - mouseY;
+		camera_phi += 0.01*mouse_dx;
+		camera_theta += 0.01*mouse_dy;
+		mouse_dx = 0;
+		mouse_dy = 0;
+		mouseX = clientX;
+		mouseY = clientY;
+	}
+});
+
+var cannonDebugRenderer = new THREE.CannonDebugRenderer( scene, world );
+
+// Start the simulation loop
+var lastTime;
+(function simloop(time){
+	requestAnimationFrame(simloop);
+	if(lastTime !== undefined){
+		var dt = (time - lastTime) / 1000;
+		if(!paused) {
+			world.step(fixedTimeStep, dt, maxSubSteps);
+		}
+	}
+	lastTime = time;
+	
+	boxMesh.position.x = boxBody.position.x;
+	boxMesh.position.y = boxBody.position.y;
+	boxMesh.position.z = boxBody.position.z;
+	boxMesh.quaternion.x = boxBody.quaternion.x;
+	boxMesh.quaternion.y = boxBody.quaternion.y;
+	boxMesh.quaternion.z = boxBody.quaternion.z;
+	boxMesh.quaternion.w = boxBody.quaternion.w;
+	
+	var xcoords = [1, 1, -1, -1];
+	var ycoords = [1, -1, -1, 1];
+	var zrots = [3*Math.PI/4, Math.PI/4, 7*Math.PI/4, 5*Math.PI/4];
+	for(var i=0; i<legMeshes.length; i++) {
+		legMeshes[i].position.x = boxBody.position.x;
+		legMeshes[i].position.y = boxBody.position.y;
+		legMeshes[i].position.z = boxBody.position.z;
+		legMeshes[i].quaternion.x = boxBody.quaternion.x;
+		legMeshes[i].quaternion.y = boxBody.quaternion.y;
+		legMeshes[i].quaternion.z = boxBody.quaternion.z;
+		legMeshes[i].quaternion.w = boxBody.quaternion.w;
+		legMeshes[i].translateX(0.7*xcoords[i]);
+		legMeshes[i].translateY(0.7*ycoords[i]);
+		legMeshes[i].translateZ(-0.5);
+		legMeshes[i].rotateOnAxis(new THREE.Vector3(0, 0, 1), zrots[i]);
+		legMeshes[i].rotateOnAxis(new THREE.Vector3(1, 0, 0), Math.PI/4);
+	}
+	
+
+	if(camera_motion.forward) {
+		camera.translateZ(-0.1);
+	}
+	if(camera_motion.backward) {
+		camera.translateZ(0.1);
+	}
+	if(camera_motion.up) {
+		camera.position.z += 0.1;
+	}
+	if(camera_motion.down) {
+		camera.position.z += -0.1;
+	}
+	if(camera_motion.left) {
+		camera.translateX(-0.1);
+	}
+	if(camera_motion.right) {
+		camera.translateX(0.1);
+	}
+
+	var point = new CANNON.Vec3(0,0,0);
+	//var force = new CANNON.Vec3(0,0,7.5/2.0*thrust.level);
+	var force = new CANNON.Vec3(0,0,g*boxMass*thrust.level/10);
+	boxBody.applyLocalForce(force,point);
+	
+	var rotForce = 10;
+	if(thrust.left) {
+		var r_point = new CANNON.Vec3(0.5,0,0);
+		var l_point = new CANNON.Vec3(-0.5,0,0);
+		var r_force = new CANNON.Vec3(0,0,rotForce);
+		var l_force = new CANNON.Vec3(0,0,-rotForce);
+		boxBody.applyLocalForce(r_force,r_point);
+		boxBody.applyLocalForce(l_force,l_point);
+	}
+	if(thrust.right) {
+		var r_point = new CANNON.Vec3(0.5,0,0);
+		var l_point = new CANNON.Vec3(-0.5,0,0);
+		var r_force = new CANNON.Vec3(0,0,-rotForce);
+		var l_force = new CANNON.Vec3(0,0,rotForce);
+		boxBody.applyLocalForce(r_force,r_point);
+		boxBody.applyLocalForce(l_force,l_point);
+	}
+	if(thrust.up) {
+		var r_point = new CANNON.Vec3(0,0.5,0);
+		var l_point = new CANNON.Vec3(0,-0.5,0);
+		var r_force = new CANNON.Vec3(0,0,rotForce);
+		var l_force = new CANNON.Vec3(0,0,-rotForce);
+		boxBody.applyLocalForce(r_force,r_point);
+		boxBody.applyLocalForce(l_force,l_point);
+	}
+	if(thrust.down) {
+		var r_point = new CANNON.Vec3(0,0.5,0);
+		var l_point = new CANNON.Vec3(0,-0.5,0);
+		var r_force = new CANNON.Vec3(0,0,-rotForce);
+		var l_force = new CANNON.Vec3(0,0,rotForce);
+		boxBody.applyLocalForce(r_force,r_point);
+		boxBody.applyLocalForce(l_force,l_point);
+	}
+	if(thrust.ccw) {
+		var r_point = new CANNON.Vec3(0.5,0,0);
+		var l_point = new CANNON.Vec3(-0.5,0,0);
+		var r_force = new CANNON.Vec3(0,rotForce,0);
+		var l_force = new CANNON.Vec3(0,-rotForce,0);
+		boxBody.applyLocalForce(r_force,r_point);
+		boxBody.applyLocalForce(l_force,l_point);
+	}
+	if(thrust.cw) {
+		var r_point = new CANNON.Vec3(0.5,0,0);
+		var l_point = new CANNON.Vec3(-0.5,0,0);
+		var r_force = new CANNON.Vec3(0,-rotForce,0);
+		var l_force = new CANNON.Vec3(0,rotForce,0);
+		boxBody.applyLocalForce(r_force,r_point);
+		boxBody.applyLocalForce(l_force,l_point);
+	}
+	
+	if(camera_mode < 3) {
+		if(camera_mode == '1') {
+			camera.rotation.z = -camera_phi;
+			camera.rotation.x = -camera_theta;
+		}
+		else if (camera_mode == '2') {
+			camera.quaternion.x = boxBody.quaternion.x;
+			camera.quaternion.y = boxBody.quaternion.y;
+			camera.quaternion.z = boxBody.quaternion.z;
+			camera.quaternion.w = boxBody.quaternion.w;
+			camera.rotateOnAxis(new THREE.Vector3(0.0, 0.0, 1.0), -camera_phi);
+			camera.rotateOnAxis(new THREE.Vector3(1.0, 0.0, 0.0), -camera_theta);
+		}
+		camera.position.x = boxBody.position.x;
+		camera.position.y = boxBody.position.y;
+		camera.position.z = boxBody.position.z;
+		camera.translateZ(camera_dist);
+	}
+	else {
+		camera.rotation.z = -camera_phi;
+		camera.rotation.x = -camera_theta;
+	}
+	
+	var el = document.getElementById('vert_vel_num');
+	var vv = boxBody.velocity.z;
+	var vvs = vv.toFixed(1).toString();
+	if(vvs.length == 3) {
+		vvs = '&nbsp;' + vvs;
+	}
+	el.innerHTML = vvs;
+	
+	var el2 = document.getElementById('twr_num');
+	var vv2 = thrust.level/10;
+	var vvs2 = vv2.toFixed(1).toString();
+	vvs2 = '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;' + vvs2;
+	if(vvs2.length == 3) {
+		vvs2 = '&nbsp;' + vvs2;
+	}
+	el2.innerHTML = vvs2;
+
+	renderer.render( scene, camera );
+})();
+
+</script>
+
+</body>
+
+</html>

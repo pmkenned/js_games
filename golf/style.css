@@ -1,0 +1,156 @@
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@100;400;500&display=swap');
+
+body {
+    margin: 0;
+    font-family: 'Roboto', sans-serif;
+    font-weight: 500;
+    background-image: radial-gradient(rgb(0,180,0), rgb(0,128,0));
+    height: 100vh;
+}
+
+body.centerForm {
+    max-width: 250px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+div.centerForm {
+    text-align: center;
+}
+
+div.centerForm input {
+    margin: 5px 5px 0px 5px;
+    width: 95%;
+    height: 2em;
+}
+
+div.centerForm button {
+    width: 97%;
+    margin: 5px;
+    height: 2.5em;
+}
+
+#loginDiv {
+    margin-top: 40vh;
+}
+
+#signupDiv {
+    margin-top: 35vh;
+}
+
+.topDiv {
+    clear: both;
+    /*border: 5px solid orange; */
+    height: 30px;
+}
+
+.topDiv .alignLeft {
+    float: left;
+    /*border: 5px solid yellow; */
+}
+
+.topDiv .alignRight {
+    float: right;
+    /*border: 5px solid yellow; */
+    font-weight: 100;
+}
+
+.topDiv .alignRight span.loggedInAs {
+    margin-right: 10px;
+}
+
+.topDiv .alignRight span.username {
+    font-weight: 400;
+}
+
+.topDiv .alignRight form {
+    display: inline;
+}
+
+.menuDiv {
+    position: fixed;
+    top: 30vh;
+    width: 100vw;
+
+    color: white;
+    text-shadow: 1px 1px 2px black;
+    text-align: center;
+    position: fixed;
+    top: 22vh; 
+    width: 100vw;
+    font-size: 1.5em;
+
+}
+
+.menuDiv > div {
+    display: none;
+    text-align: center;
+}
+
+.fancyButton {
+    color: white;
+    text-shadow: 1px 1px 2px black;
+    font-size: 1.0em;
+    background-color: hsl(120, 50%, 50%);
+    border: 2px solid green;
+    border-radius: 5px;
+}
+
+.fancyButton:hover {
+    color: black;
+    background-color: hsl(120, 90%, 70%);
+}
+
+#echoBtnDiv {
+    display: none;
+}
+
+#newGame, #startGame, #endGame, #nextRoundDiv, #leaveGameDiv, #cancelGame, #draw_and_discard, #restartGame {
+    display: none;
+}
+
+#nextRoundDiv, #restartGame {
+    text-align: center;
+    position: fixed;
+    top: 35vh; 
+    width: 100vw;
+    font-size: 1.5em;
+}
+
+#msgDiv {
+    color: white;
+    text-shadow: 1px 1px 2px black;
+    text-align: center;
+    position: fixed;
+    top: 24vh; 
+    width: 100vw;
+    font-size: 1.5em;
+}
+
+#scoreDiv {
+    display: none;
+    color: white;
+    text-shadow: 1px 1px 2px black;
+    text-align: center;
+    position: fixed;
+    top: 27vh; 
+    width: 100vw;
+    font-size: 1.5em;
+}
+
+#draw_and_discard {
+    position: fixed;
+    left: 50vw;
+    top: 50vh;
+    margin-top: -77px;
+    margin-left: -100px;
+}
+
+#drawBtn {
+    height: 15vh;
+    border: 4px solid transparent;
+}
+#discardBtn {
+    height: 15vh;
+    border: 4px solid transparent;
+}

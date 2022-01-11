@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <title>Games</title>
+        <style>
+body {
+    width: 90%;
+    max-width: 900px;
+    margin: auto;
+    font-family: Helvetica, "Trebuchet MS", Verdana, sans-serif;
+    color: hsl(0, 0%, 30%);
+}
+
+h1 {
+    margin-top: 0;
+    margin-bottom: 0;
+    text-align: center;
+    font-size: 5vw;
+    /*color: hsl(0, 0%, 30%);*/
+    /*color: hsl(330, 50%, 50%);*/
+    color: hsl(0, 0%, 30%);
+    /*text-shadow: 3px 3px 5px #ffffff;*/
+}
+hr {
+    width: 70%;
+}
+main {
+    background: hsl(0, 0%, 94%);
+    padding: 20px 20px;
+    box-shadow: 5px 5px 3px #888888;
+    border: 1px solid hsl(0, 0%, 80%);
+    border-radius: 10px;
+    margin-top: 30px;
+}
+ul li {
+    display: inline-block;
+}
+li {
+    border: 1px solid hsl(0, 0%, 70%);
+    background-color: hsl(0, 0%, 85%);
+    border-radius: 5px;
+    padding: 2px 10px;
+    margin: 5px 2px;
+    /* line-height: 1.5; */
+    white-space: nowrap;
+    /* font-weight: 400; */
+}
+li figcaption {
+    text-align: center;
+}
+li img {
+    width: 100px;
+}
+li figure {
+    margin: 10px 10px;
+}
+li a {
+    text-decoration: none;
+}
+li a:visited {
+    color: hsl(0, 0%, 30%);
+    text-decoration: none;
+}
+li a:hover{
+    color: hsl(0, 0%, 50%);
+    text-decoration: underline;
+}
+        </style>
+    </head>
+
+    <body>
+
+        <main>
+
+        <h1>Games</h1>
+        <hr>
+
+        <section>
+            <h2>Finished Games</h2>
+            <ul>
+                <li>
+                <a href="tetris/index.html">
+                    <figure>
+                        <img src="images/tetris.png" alt="Tetris">
+                        <figcaption>Tetris</figcaption>
+                    </figure>
+                </a>
+                </li>
+                <li>
+                <a href="golf/game.php">
+                    <figure>
+                        <img src="images/golf.png" alt="Golf">
+                        <figcaption>Golf</figcaption>
+                    </figure>
+                </a>
+                </li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>In Development</h2>
+            <ul>
+                <li>(None right now)</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>Prototypes</h2>
+            <ul>
+                <li>
+                <a href="lander/index.html">
+                    <figure>
+                        <img src="images/lander.png" alt="Lander">
+                        <figcaption>Lander</figcaption>
+                    </figure>
+                </a>
+                </li>
+                <li>
+                <a href="3d_lander/index.html">
+                    <figure>
+                        <img src="images/3d_lander.png" alt="3D Lander">
+                        <figcaption>3D Lander</figcaption>
+                    </figure>
+                </a>
+                </li>
+                <li>
+                <a href="asteroids/index.html">
+                    <figure>
+                        <img src="images/asteroids.png" alt="Asteroids">
+                        <figcaption>Asteroids</figcaption>
+                    </figure>
+                </a>
+                </li>
+                <li>
+                <a href="jezz/index.html">
+                    <figure>
+                        <img src="images/jezz.png" alt="Jezz">
+                        <figcaption>Jezz</figcaption>
+                    </figure>
+                </a>
+                </li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>Games Ideas</h2>
+            <ul id="gameIdeas">
+            </ul>
+        </section>
+
+        </main>
+
+        <script>
+            const game_ideas = [
+                { name: 'Asteroids',            interest: 4, difficulty: 3},
+                { name: 'PacMan',               interest: 2, difficulty: 3},
+                { name: 'Space Invaders',       interest: 2, difficulty: 3},
+                { name: 'Frogger',              interest: 2, difficulty: 3},
+                { name: 'Missile Command',      interest: 2, difficulty: 3},
+                { name: 'Worms Armageddon',     interest: 3, difficulty: 4},
+                { name: 'Lunar Lander',         interest: 4, difficulty: 4},
+                { name: 'Bubble Burster',       interest: 2, difficulty: 3},
+                { name: 'Castle Defender',      interest: 3, difficulty: 4},
+                { name: 'Flight Control',       interest: 3, difficulty: 4},
+                { name: 'Typing Game',          interest: 3, difficulty: 2},
+                { name: 'Pipe Dream',           interest: 4, difficulty: 4},
+                { name: 'Breakout',             interest: 3, difficulty: 2},
+                { name: 'Minesweeper',          interest: 2, difficulty: 2},
+                { name: 'Simon',                interest: 3, difficulty: 1},
+                { name: 'Snake',                interest: 2, difficulty: 2},
+                { name: 'Sokoban',              interest: 3, difficulty: 2},
+                { name: 'Pegged',               interest: 2, difficulty: 1},
+                { name: 'Little Fish',          interest: 2, difficulty: 2},
+                { name: 'Quoridor',             interest: 2, difficulty: 1},
+                { name: 'Rodent\'s Revenge',    interest: 4, difficulty: 3},
+                { name: 'Chip\'s Challenge',    interest: 3, difficulty: 3},
+                { name: 'SkiFree',              interest: 4, difficulty: 3},
+                { name: 'JezzBall',             interest: 4, difficulty: 2},
+                { name: 'Risk',                 interest: 3, difficulty: 5},
+                { name: 'Whitehall',            interest: 3, difficulty: 5},
+                { name: 'Chess',                interest: 2, difficulty: 4},
+                { name: 'Go',                   interest: 1, difficulty: 1},
+                { name: 'Raptor',               interest: 3, difficulty: 4},
+                { name: 'Billiards',            interest: 2, difficulty: 3},
+                { name: 'Zoombinis',            interest: 3, difficulty: 5},
+                { name: 'SimCity',              interest: 2, difficulty: 5},
+                { name: 'Seek and Destroy',     interest: 3, difficulty: 4},
+            ];
+
+            //game_ideas.sort((a, b) => (a.name > b.name) ? 1 : -1)
+            //game_ideas.sort((a, b) => (a.difficulty > b.difficulty) ? 1 : -1)
+            game_ideas.sort((a, b) => (a.interest < b.interest) ? 1 : -1)
+            const game_ideas_ul = document.getElementById('gameIdeas');
+            for (let game_idea_record of game_ideas) {
+                const game_idea = game_idea_record.name;
+                const new_li = document.createElement('li');
+                new_li.appendChild(document.createTextNode(`${game_idea}`));
+                game_ideas_ul.appendChild(new_li);
+            }
+
+        </script>
+
+    </body>
+
+</html>

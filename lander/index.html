@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+<title>Gamepad test</title>
+<style>
+html, body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+}
+</style>
+<script src="https://code.jquery.com/jquery-3.4.1.min.js" integrity="sha256-CSXorXvZcTkaix6Yvo6HppcZGetbYMGWSFlBw8HfCJo=" crossorigin="anonymous"></script>
+
+</head>
+
+<body>
+
+<script>
+
+// TODO
+function handleResize(event) {
+    console.log(event);
+}
+
+$(function() {
+
+    //window.onresize = reportWindowSize;
+    window.addEventListener('resize', (event) => { handleResize(event); } );
+
+    let $canvas = $('<canvas></canvas>').appendTo('body');
+    //$canvas.css('border', '1px solid red');
+    $canvas.css('display', 'none');
+    let canvas = $canvas[0];
+    canvas.width=window.innerWidth;
+    canvas.height=window.innerHeight;
+    let ctx = canvas.getContext('2d');
+
+    var my_gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    my_gradient.addColorStop(0, "#000020");
+    my_gradient.addColorStop(1, "#8080f0");
+
+    let paused = false;
+
+    let gamepadIdx;
+
+    let game_time;
+
+    let thrust_orientation;
+
+    let pos = {};
+    let angle = 0;
+    let rotVel = 0;
+    let vel = {};
+    let playingSound;
+    let fuel = 100.0;
+
+    let missile_pos = {};
+    let missile_vel = {};
+    let missile_angle;
+
+    let scrolled = false;
+    let mouse_thrust = 0.0;
+
+    let keyed = false;
+    let key_thrust = 0.0;
+
+    let a_down = false;
+    let d_down = false;
+    let w_down = false;
+    let s_down = false;
+
+    const max_particles = 20;
+    const max_particle_size = 14;
+    const time_between_particles = 3;
+    let particles = [];
+    let time_of_last_particle;
+
+    let terrain_points = [];
+    const num_terrain_points = 20;
+    let z = canvas.width/(20*num_terrain_points);
+    for(let i=0; i<num_terrain_points; i++) {
+        let terrain_x = -canvas.width/20 + i*z*2 + Math.random()*2-2;
+        let terrain_y = Math.random()*20;
+        terrain_points.push({x: terrain_x, y: terrain_y});
+    }
+    terrain_points.push({x: canvas.width/20, y: Math.random()*20});
+
+    const star_period = 1000;
+    const twinkle_dur = 10;
+    let star_pos = [];
+    const num_stars = 25;
+    let star_angle = 45*Math.PI/180.0;
+    for(let i=0; i<num_stars; i++) {
+        let star_x = Math.random() * canvas.width;
+        let star_y = Math.random() * 200;
+        let star_time = Math.random() * star_period;
+        let star_size = Math.random() * 4 + 2;
+        star_pos.push({x: star_x, y: star_y, size: star_size, t: star_time});
+    }
+
+    // axis 0: yaw
+    // axis 1: pitch
+    // axis 5: roll
+    // axis 6: throttle
+    // axis 9: hat
+
+    $canvas.css('display', 'inline');
+    init();
+    gameLoop();
+
+    function toScreenX(x) { return x*10+canvas.width/2; }
+    function toScreenY(y) { return canvas.height - y*10 - 10;}
+
+    //function fromScreenX(x) { return (x-canvas.width/2)/10.0; }
+    //function fromScreenY(y) { return (y+10-canvas.height)/10.0; }
+
+    function mousewheelmove(event) {
+        //event.preventDefault();
+        let deltaY = event.deltaY;
+        mouse_thrust -= deltaY/1000.0;
+        if(mouse_thrust < 0) {
+            mouse_thrust = 0;
+        } else if(mouse_thrust > 1) {
+            mouse_thrust = 1;
+        }
+        scrolled = true;
+    }
+
+    document.onwheel = mousewheelmove;
+    document.onkeydown = function(event) {
+        //console.log(event);
+        if(event.key == 'a') {
+            a_down = true;
+        } else if (event.key == 'd') {
+            d_down = true;
+        } else if (event.key == 'w') {
+            w_down = true;
+        } else if (event.key == 's') {
+            s_down = true;
+        } else if (event.key == 'Escape') {
+            paused = !paused;
+        } else if (event.key == 'r') {
+            init();
+        } else {
+            console.log(event.key);
+        }
+    };
+    document.onkeyup = function(event) {
+        //console.log(event);
+        if(event.key == 'a') {
+            a_down = false;
+        } else if (event.key == 'd') {
+            d_down = false;
+        } else if (event.key == 'w') {
+            w_down = false;
+        } else if (event.key == 's') {
+            s_down = false;
+        }
+    };
+
+    function calculateThrust() {
+        let gamepad = navigator.getGamepads()[gamepadIdx];
+        let thrust_axis = thrust_orientation; //-0.5*gamepad.axes[6]+0.5;
+        let thrust;
+
+        if(fuel > 0) {
+            if(scrolled) {
+                thrust = mouse_thrust;
+            } else if (keyed) {
+                thrust = key_thrust;
+            } else {
+                thrust = thrust_axis;
+            }
+        } else {
+            thrust = 0.0
+        }
+        return thrust;
+    }
+
+    function init() {
+        vel.x = 0;
+        vel.y = 0;
+        pos.x = 0;
+        pos.y = 10;
+        angle = 0;
+        rotVel = 0;
+        fuel = 100.0;
+        playingSound = false;
+        game_time = 0;
+        time_of_last_particle = 0;
+        thrust_orientation = 0;
+
+        missile_pos.x = 15;
+        missile_pos.y = 15;
+        missile_vel.x = 0;
+        missile_vel.y = 0;
+    }
+
+    function gameLoop() {
+
+        getGamePadState();
+
+        updateGameState();
+
+        drawGame();
+
+        setTimeout(function() { gameLoop(); }, 20);
+    }
+
+    function updateGameState() {
+
+        game_time += 1;
+
+        if (paused) {
+            return;
+        }
+
+        missile_vel.x += 0.01*(pos.x - missile_pos.x);
+        missile_vel.y += 0.01*(pos.y - missile_pos.y);
+        if(Math.abs(missile_vel.x) > 0.2) {
+            if(missile_vel.x < 0) {
+                missile_vel.x = -0.2;
+            } else {
+                missile_vel.x = 0.2;
+            }
+        }
+        if(Math.abs(missile_vel.y) > 0.2) {
+            if(missile_vel.y < 0) {
+                missile_vel.y = -0.2;
+            } else {
+                missile_vel.y = 0.2;
+            }
+        }
+        missile_pos.x += missile_vel.x;
+        missile_pos.y += missile_vel.y;
+
+        vel.y -= 0.01;
+        pos.x += vel.x;
+        pos.y += vel.y;
+        if(toScreenX(pos.x) < 0) {
+            pos.x += 0.2;
+            vel.x = 0;
+        } else if(toScreenX(pos.x) > canvas.width) {
+            pos.x -= 0.2;
+            vel.x = 0;
+        }
+
+        rotVel *= 0.95
+
+        if((toScreenY(pos.y) < 100.0) && (toScreenX(pos.x) < canvas.width/2+50) && (toScreenX(pos.x) > canvas.width/2-50)) {
+            if(fuel < 100) {
+                fuel += 0.3;
+            }
+        }
+
+        if(pos.y < 0) {
+            if(vel.y < -0.02) {
+                //console.log(vel.y);
+            }
+            if((vel.y < -1.1) || (Math.abs(vel.x) > 0.3) || (Math.abs(angle) > Math.PI/3)) {
+                //console.log('death');
+                init();
+            }
+            else {
+                pos.y = 0;
+                vel.x *= 0.95;
+                vel.y = 0;
+                rotVel = 0;
+                angle = 0;
+            }
+        } else if(toScreenY(pos.y) < 0) {
+            pos.y -= 0.2;
+            vel.y = 0;
+        }
+
+        let gamepad = navigator.getGamepads()[gamepadIdx];
+        let thrust = calculateThrust();
+
+        //fuel -= 0.1*thrust;
+        if(fuel < 0) { fuel = 0; }
+
+        vel.x += thrust*0.02*Math.sin(angle);
+        vel.y += thrust*0.02*Math.cos(angle);
+
+        //let rotThrust = 0.005*gamepad.axes[0];
+        let rotThrust = 0;
+
+        rotVel += rotThrust;
+
+        if(a_down) {
+            rotVel -= 0.003;
+        }
+        if(d_down) {
+            rotVel += 0.003;
+        }
+
+        if(w_down) {
+            keyed = true;
+            key_thrust += 0.03;
+            if (key_thrust > 1) {
+                key_thrust = 1.0;
+            }
+        }
+        if(s_down) {
+            keyed = true;
+            key_thrust -= 0.03;
+            if (key_thrust < 0) {
+                key_thrust = 0.0;
+            }
+        }
+
+        angle += rotVel;
+        if (angle > Math.PI) {
+            angle -= 2*Math.PI;
+        }
+
+
+        for(let particle_idx in particles) {
+            let particle = particles[particle_idx];
+            particle.x += 0.02*Math.sin(particle.angle);
+            particle.y += 0.02*Math.cos(particle.angle);
+            //if(particle.direction === 'left') {
+            //    particle.x -= 0.2;
+            //} else {
+            //    particle.x += 0.2;
+            //}
+            //particle.y += 0.05;
+            particle.size += 0.2;
+            if(particle.size > max_particle_size) {
+                particles.splice(particle_idx, 1);
+            }
+        }
+        if (pos.y < 10 && thrust > 0.1) { // TODO: check for thrust
+            let p;
+            if(angle < -0.1) { p = Math.random()*0.6+0.6; }
+            else if(angle > 0.1) { p = Math.random()*0.6; }
+            else { p = Math.random(); }
+            let dir = (p < 0.5) ? 'left' : 'right';
+            let x_off;
+            if (dir === 'left') {
+                particle_angle = Math.PI/8*Math.random() - 3*Math.PI/8;
+                x_off = -1*Math.random();
+            } else {
+                particle_angle = Math.PI/8*Math.random() + 3*Math.PI/8;
+                x_off = Math.random();
+            }
+            //if ((particles.length < max_particles) && (game_time - time_of_last_particle > time_between_particles)) {
+            if (game_time - time_of_last_particle > time_between_particles) {
+                particles.push({x: pos.x + x_off  - (pos.y+1)*Math.sin(angle), y: -0.5, size: 5.5, angle: particle_angle, direction: dir});
+                time_of_last_particle = game_time;
+            }
+        }
+
+    }
+
+    function drawGame() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = my_gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+
+        // terrain
+        ctx.beginPath();
+        ctx.moveTo(0, toScreenY(1));
+        for(let terrain_point of terrain_points) {
+            ctx.lineTo(toScreenX(terrain_point.x), toScreenY(terrain_point.y));
+        }
+        ctx.lineWidth = 2.0;
+        ctx.strokeStyle = "#ffffff";
+        //ctx.stroke();
+
+        // stars
+        let star_angle = 45*Math.PI/180.0;
+        ctx.fillStyle = "#ffffff";
+        for(let i in star_pos) {
+            let star_x = star_pos[i].x;
+            let star_y = star_pos[i].y;
+            let star_size = star_pos[i].size;
+            let star_time = star_pos[i].t;
+            star_pos[i].t++;
+            if(star_time >= star_period) {
+                star_pos[i].t = 0;
+            }
+            if(star_time < twinkle_dur) {
+                star_size -= 2;
+            }
+            ctx.translate(star_x, star_y);
+            ctx.rotate(star_angle);
+                ctx.fillRect(-star_size,-star_size,star_size,star_size);
+            ctx.rotate(-star_angle);
+            ctx.translate(-star_x, -star_y);
+        }
+
+        // missile
+        let missile_screen_x = toScreenX(missile_pos.x);
+        let missile_screen_y = toScreenY(missile_pos.y);
+        ctx.translate(missile_screen_x, missile_screen_y);
+            //ctx.lineWidth = 2.0;
+            //ctx.strokeStyle = "#ffffff";
+            //ctx.fillStyle = "#808080";
+            //ctx.beginPath();
+            //ctx.arc(0, 0, 5, 0, 2*Math.PI);
+            //ctx.fill();
+            //ctx.stroke();        
+        ctx.translate(-missile_screen_x, -missile_screen_y);
+
+        // fuel gauge
+        ctx.translate(100, canvas.height-100);
+
+            ctx.lineWidth = 2.0;
+            ctx.strokeStyle = "#ffffff";
+            ctx.beginPath();
+            ctx.arc(0, 0, 45, 0.7*Math.PI, 2.3*Math.PI);
+            ctx.stroke();
+
+        let fuelGaugeAngle = 1.6*fuel/100.0*Math.PI + 1.2*Math.PI;
+        ctx.rotate(fuelGaugeAngle);
+            ctx.fillStyle = "#ff0000";
+            ctx.beginPath();
+            ctx.moveTo(-2, 0);
+            ctx.lineTo(-1, -50);
+            ctx.lineTo(1, -50);
+            ctx.lineTo(2, 0);
+            ctx.closePath();
+            ctx.fill();
+        ctx.rotate(-fuelGaugeAngle);        
+        ctx.translate(-100, -canvas.height+100);
+
+        ctx.font = "30px Arial";
+        ctx.fillStyle = "white";
+        ctx.fillText("W", 200, canvas.height-100);
+        ctx.fillText("ASD", 180, canvas.height-70);
+
+        let screen_x = toScreenX(pos.x);
+        let screen_y = toScreenY(pos.y);
+
+        ctx.translate(screen_x, screen_y);
+        ctx.rotate(angle);
+
+            ctx.lineWidth = 2.0;
+            ctx.strokeStyle = "#404040";
+
+            // descent stage
+            ctx.fillStyle = "#e0d000";
+            ctx.fillRect(-10, 0, 20, -10);
+            ctx.strokeRect(-10, 0, 20, -10);
+
+            // ascent stage
+            ctx.fillStyle = "#f0f0f0";
+            ctx.beginPath();
+            ctx.moveTo(5, -10);
+            ctx.lineTo(8, -17);
+            ctx.lineTo(5, -24);
+            ctx.lineTo(-5, -24);
+            ctx.lineTo(-8, -17);
+            ctx.lineTo(-5, -10);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            // left leg
+            ctx.beginPath();
+            ctx.moveTo(-10, -4);
+            ctx.lineTo(-15, 10);
+            ctx.lineTo(-20, 10);
+            ctx.stroke();
+
+            // right leg
+            ctx.beginPath();
+            ctx.moveTo(10, -4);
+            ctx.lineTo(15, 10);
+            ctx.lineTo(20, 10);
+            ctx.stroke();
+
+            // exhaust
+            let thrust = calculateThrust();
+            ctx.fillStyle = "#f08000";
+            ctx.beginPath();
+            ctx.moveTo(-5, 6);
+            ctx.lineTo(5, 6);
+            ctx.lineTo(0, 20*thrust+6);
+            ctx.fill();
+
+            // nozzle
+            ctx.strokeStyle = "#404040";
+            ctx.fillStyle = "#a0a0a0";
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            ctx.moveTo(3, 0);
+            ctx.lineTo(5, 5);
+            ctx.lineTo(-5, 5);
+            ctx.lineTo(-3, 0);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+        ctx.rotate(-angle);
+        ctx.translate(-screen_x, -screen_y);
+
+        // particles
+        for(let particle of particles) {
+            const alpha = 1 - (particle.size / max_particle_size);
+            ctx.fillStyle = `hsla(0, 0%, 30%, ${alpha})`;
+            ctx.beginPath();
+            ctx.arc(toScreenX(particle.x), toScreenY(particle.y), particle.size, 0, 2*Math.PI);
+            ctx.fill();
+        }
+
+
+        //ctx.setTransform(1, 0, 0, 1, 0, 0);
+    }
+
+    window.addEventListener("gamepadconnected", (event) => {
+        console.log("A gamepad connected:");
+        console.log(event.gamepad);
+        //let gamepadIdx = event.gamepad.index
+        gamepadIdx = event.gamepad.index
+        let gamepad = navigator.getGamepads()[event.gamepad.index];
+
+        for(let idx in gamepad.axes) {
+            let $div = $('<div></div>').appendTo('body');
+            $div.append(`<span>Axis ${idx}:</span><span id="axis${idx}"></span>`);
+            $div.css('display', 'none');
+        }
+
+        for(let idx in gamepad.buttons) {
+            let $div = $('<div></div>').appendTo('body');
+            $div.append(`<span>Button ${idx}:</span><span id="button${idx}"></span>`);
+            $div.css('display', 'none');
+        }
+    });
+
+    window.addEventListener("gamepaddisconnected", (event) => {
+      console.log("A gamepad disconnected:");
+      console.log(event.gamepad);
+    });
+
+    function getGamePadState() {
+        let gamepad = navigator.getGamepads()[gamepadIdx];
+        if(gamepad != null) {
+            for(let idx in gamepad.axes) {
+                let axis_value = gamepad.axes[idx];
+                let axis_element = $('#axis' + idx);
+                let axis_rounded = Number(axis_value.toFixed(3));
+                axis_element.text(axis_rounded);
+            }
+            for(let idx in gamepad.buttons) {
+                let button_value = gamepad.buttons[idx].pressed;
+                let button_element = $('#button' + idx);
+                button_element.text(button_value);
+            }
+        }
+        //setTimeout(function() {getGamePadState(gamepadIdx);}, 30);
+    }
+
+    window.addEventListener('deviceorientation', function(event) {
+
+        let alpha = (event.alpha == null)? 0.0 : event.alpha;
+        let beta = (event.beta == null)? 0.0 : event.beta;
+        let gamma = (event.gamma == null)? 0.0 : event.gamma;
+        let alpha_str = alpha.toFixed(2);
+        let beta_str = beta.toFixed(2);
+        let gamma_str = gamma.toFixed(2);
+        let alpha_rad = alpha*Math.PI/180.0;
+        let beta_rad = beta*Math.PI/180.0;
+        let gamma_rad = gamma*Math.PI/180.0;
+
+        let gamma_constrained = Math.min(Math.max(0, gamma), 90);
+
+        thrust_orientation = gamma_constrained/90.0;
+
+        //let myStr =  alpha_str + '<br>' + beta_str + '<br>' + gamma_str;
+        //document.getElementById('myDiv').innerHTML = myStr;
+    });
+
+});
+
+</script>
+
+</body>
+
+</html>

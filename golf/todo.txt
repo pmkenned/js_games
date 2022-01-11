@@ -1,0 +1,62 @@
+TODO:
+
+Correctness:
+   Estimate   So Far    Actual      Status
+ * 0.25 hr                                      choose initial player each round correctly
+ * 0.75 hr    0.25 hr               Progress    debug "going out"
+ * 0.10 hr                                      debug end of round (check 'mode' in player action functions)
+ * 0.10 hr                                      don't let a game start with only one player
+
+Nice to have:                     
+   Estimate   So Far    Actual      Status
+ * 0.50 hr                                      make it obvious when someone has gone out
+ * 0.25 hr                                      make it clear what round it is
+ * 0.50 hr                                      shuffle player order between games
+ * 0.50 hr                                      make cards easier to see
+ * 2.00 hr                                      refactor code for deciding what to display when
+ * 1.50 hr                                      add scoreboard / show scores next to names
+ * 3.00 hr                                      add options (number of decks to use, include jokers, matching 2s count as 0 or -4, optional rules, etc.)
+ * 1.50 hr                                      make everything look nice
+ * 0.75 hr                                      track points per round
+ * 0.50 hr                                      allow players to leave the game without breaking it
+ * 2.00 hr                                      make it look nice on mobile
+ * 1.50 hr                                      refactor player action functions
+ * 1.50 hr                                      server should only send back known data
+ * 2.50 hr                                      create better error handling and reporting
+ * 0.75 hr                                      change any GET requests that update state to POSTs
+ * 0.50 hr                                      make it impossible to directly access certain php files
+ * 1.50 hr                                      documentation
+ * 0.50 hr                                      consider using header tag
+
+Advanced:
+   Estimate   So Far    Actual      Status
+ * 4.00 hr                                      allow for multiple simultaneous games (auto-delete old games)
+ * 3.00 hr                                      chat feature
+ * 5.00 hr                                      write test suite
+ * 2.00 hr                                      ai opponent
+ * 1.50 hr                                      password reset option
+
+Notes:
+================================================================
+
+Going out:
+
+player actions:
+    revealCard($cardIdx)
+    revealDrawCard()
+        if being_forced_to_go_out:
+            5 cards must be face up
+    discardDrawCard()
+        if being_forced_to_go_out:
+            (5 cards must be face up)
+            flip remaining card face up
+    swapDrawWith($cardIdx)
+        if being_forced_to_go_out:
+            (5 cards must be face up)
+        if cardIdx != remaining face down:
+            flip up remaining face down card
+    swapDiscardWith($cardIdx)
+        if being_forced_to_go_out:
+            5 cards must be face up
+        if cardIdx != remaining face down:
+            flip up remaining face down card
