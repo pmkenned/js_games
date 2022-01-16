@@ -9,6 +9,13 @@ body {
     margin: 0;
     overflow: hidden;
 }
+canvas {
+    image-rendering: optimizeSpeed;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: optimize-contrast;
+    -ms-interpolation-mode: nearest-neighbor
+}
 </style>
     </head>
 
@@ -18,12 +25,15 @@ body {
         <script>
 
 // TODO:
-// - add levels
-// - draw cat, mouse, cheese, etc.
+// - fix blurring
+// - only turn cats to cheese when all existing cats are trapped
 // - add timer
+// - add more levels
+// - hard mode: faster cats
 // - allow for holding down move keys
 
 // TEXTURES:
+// see: https://onlinepngtools.com/convert-png-to-base64
 
 const block_tex = new Image();
 block_tex.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAIAAADZF8uwAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAB1SURBVChTfVBBDsAgDKJm3/JzfmwH/ZejwzRG3TzUighYQ4dWRzfY3qPhcrSpvNu75r7cJVGAaEXNyEFamkSLhaEja1ATu4B4cZR0UvDIPpoO0i4geZl68D1E+ErYgy8Wej2Dwy5i/QWP3x6DG7U5068xCn8AeGU1+Y6C46QAAAAASUVORK5CYII=";
@@ -39,6 +49,9 @@ mouse_tex.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAIAAADZF
 
 const cat_tex = new Image();
 cat_tex.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAIAAADZF8uwAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAACASURBVChTdVDBEYAgDKOcY8GDxXy4GA8Gq8FgQa094GiTpgEJIbSG4zdqPSIYOT8Ya4p7KXt0FYBBwNjyHQdMdfSK3GY8T3rx+u4oGThR5eqgjgqh4Sml6Q1VTMFQm+UYR4PJs3WS0Mflh72FAkxNbHpi9fWNJrnRJoPdTNd/OQEgeT/N8QsrywAAAABJRU5ErkJggg==";
+
+const trapped_tex = new Image();
+trapped_tex.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAIAAADZF8uwAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABkSURBVChThZELEgARDEN79l7NwWxsMhXWjo7xaZ8IorW4tjsBiTMUlsf8F2JJQUPf6D3YpIQhM4EuBawG8VKUcYK70TM5Y4PcgOYlRn/YzdMrPy/o3suy0E3GL1s/oXcqmeMXPfYeqEniJnQfAAAAAElFTkSuQmCC";
 
 const cheese_tex = new Image();
 cheese_tex.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAIAAADZF8uwAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABfSURBVChTYzx8mIEgYCKoAqiAKEWMEOtsbLCbeOQISBxqUnNzE1ZVEM0I63CpQ3cTpjqICNQkR8c6iHVwdUAGnI2wDlndkSMooYcSBHB1cE9ARNDDCVkdnA0NJ/zhDgB0vRurRGXeFQAAAABJRU5ErkJggg==";
@@ -128,7 +141,6 @@ function level(n) {
 
 function reset()
 {
-    //Math.seedrandom('');
     resize();
     pressed = {};
     prevPressed = {};
@@ -199,15 +211,9 @@ function worldToScreen(coord) {
     };
 }
 
-function drawRect(rect) {
+function drawTexture(tex, rect) {
     const sr = worldToScreen(rect);
-    ctx.fillRect(px(sr.x - sr.w/2), px(sr.y - sr.h/2), sr.w, sr.h);
-}
-
-function drawTexture(tex, rect)
-{
-    const sr = worldToScreen(rect);
-    ctx.drawImage(tex, px(sr.x - sr.w/2), px(sr.y - sr.h/2));
+    ctx.drawImage(tex, px(sr.x - sr.w/2), px(sr.y - sr.h/2), sr.w, sr.h);
 }
 
 function drawBoard()
@@ -215,10 +221,6 @@ function drawBoard()
     ctx.fillStyle = "black";
     for (let r = 0; r < cs.board.length; r++) {
         for (let c = 0; c < cs.board[0].length; c++) {
-            //if (cs.board[r][c] == 'WALL')       { ctx.fillStyle = "black"; }
-            //else if (cs.board[r][c] == 'FLOOR') { ctx.fillStyle = "gray"; }
-            //else if (cs.board[r][c] == 'BLOCK') { ctx.fillStyle = "green"; }
-            //drawRect({x: c, y: r, w: 1, h: 1});
             let tex = undefined;
             if      (cs.board[r][c] == 'WALL')  { tex = wall_tex;  }
             else if (cs.board[r][c] == 'FLOOR') { tex = floor_tex; }
@@ -226,15 +228,11 @@ function drawBoard()
             drawTexture(tex, {x: c, y: r, w: 1, h: 1});
         }
     }
-    //ctx.fillStyle = "purple";
-    //drawRect({x: cs.mouse.c, y: cs.mouse.r, w: 1, h: 1});
     drawTexture(mouse_tex, {x: cs.mouse.c, y: cs.mouse.r, w: 1, h: 1});
 
     for (let cat of cs.cats) {
-        //ctx.fillStyle = (cs.cats[i].cheese) ? "yellow" : "orange";
-        //drawRect({x: cs.cats[i].c, y: cs.cats[i].r, w: 1, h: 1});
         const tex = cat.cheese ? cheese_tex : cat_tex;
-        drawTexture(cat_tex, {x: cat.c, y: cat.r, w: 1, h: 1});
+        drawTexture(tex, {x: cat.c, y: cat.r, w: 1, h: 1});
     }
 }
 
@@ -255,8 +253,8 @@ function draw() {
     ctx.clearRect(0, 0, width, height);
 
     drawBoard();
-    drawText(nr-0.8, 0, `Score: ${cs.score}`, "white", null, 30);
-    drawText(nr-0.8, nc-4, `Lives: ${cs.lives}`, "white", null, 30);
+    drawText(nr-0.8, 0, `Score: ${cs.score}`, "black", null, 30);
+    drawText(nr-0.8, nc-4, `Lives: ${cs.lives}`, "black", null, 30);
 
     if (cs.game_over) {
         drawTextCenter("GAME OVER");
@@ -293,11 +291,16 @@ function catCanMove(cat)
     for (let r = -1; r <= 1; r++) {
         for (let c = -1; c <= 1; c++) {
             if (r == 0 && c == 0) continue;
+            if (aCatIsAt(cat.r+r, cat.c+c)) continue;
             if (cs.board[cat.r+r][cat.c+c] == 'FLOOR')
                 return true;
         }
     }
     return false;
+}
+
+function catCanMoveTo(cat, r, c) {
+    return cs.board[r][c] == 'FLOOR' && !aCatIsAt(r, c);
 }
 
 // TODO: don't let cats be on the same square
@@ -436,6 +439,7 @@ function updateCat(cat, dt)
         cat.cheese = true;
         cs.numTrappedCats++;
         addCat();
+        addCat();
     }
 }
 
@@ -457,7 +461,7 @@ function update(t, dt) {
     for (const cat of cs.cats) {
         updateCat(cat, dt);
 
-        if (cs.numTrappedCats == 1)
+        if (cs.numTrappedCats == 3)
             nextLevel();
 
         // check if caught mouse
@@ -528,8 +532,8 @@ function resize(e) {
     height = canvas.height = window.innerHeight;
     const sqh = Math.round(height/(nr+2));
     const sqw = Math.round(width/(nc+2));
-    //sq = Math.min(sqh, sqw);
-    sq = 12;
+    sq = Math.min(sqh, sqw);
+    //sq = 12;
 }
 
 function keydown(e) {
