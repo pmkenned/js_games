@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta name ="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Rodent's Revenge</title>
+<style>
+body {
+    margin: 0;
+    overflow: hidden;
+}
+</style>
+    </head>
+
+    <body>
+        <canvas id="myCanvas"></canvas>
+
+        <script>
+
+// TODO:
+// - add levels
+// - draw cat, mouse, cheese, etc.
+// - add timer
+// - allow for holding down move keys
+
+// TEXTURES:
+
+const block_tex = new Image();
+block_tex.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAIAAADZF8uwAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAB1SURBVChTfVBBDsAgDKJm3/JzfmwH/ZejwzRG3TzUighYQ4dWRzfY3qPhcrSpvNu75r7cJVGAaEXNyEFamkSLhaEja1ATu4B4cZR0UvDIPpoO0i4geZl68D1E+ErYgy8Wej2Dwy5i/QWP3x6DG7U5068xCn8AeGU1+Y6C46QAAAAASUVORK5CYII=";
+
+const wall_tex = new Image();
+wall_tex.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAIAAADZF8uwAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABdSURBVChTrZBBDsAgCASh6bP09fgv3YSU4tZwKhcTGWYJKnNKWTaGAsJTYF3kqjXevQPqreWBrH8hELmBFHuGOI58jjEEGRxUh8UjJdDtBORwGp//3UnN7LspLb4A6RIfxCQZ9aQAAAAASUVORK5CYII=";
+
+const floor_tex = new Image();
+floor_tex.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAIAAADZF8uwAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAYSURBVChTYzx8mIEgYCKoAqhgVBG9gwAAuMkBnrlAB8oAAAAASUVORK5CYII=";
+
+const mouse_tex = new Image();
+mouse_tex.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAIAAADZF8uwAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAB+SURBVChThVBBDsAgCBOzb/k1D/owDvgvV4JjZiSTGAIWCpREUikJ/scyMKs7FO0wc/MGBEgVtUHw9mBzTmuzAJ+XL+QEvXcRYWYieoc4AbDWlB8BiJ44rVowjzHi7uCrtZKdZk27AfN0FUWOXbnsi/t1UVgVM+r5kVfHHe0Gx/VM9JNt1j8AAAAASUVORK5CYII=";
+
+const cat_tex = new Image();
+cat_tex.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAIAAADZF8uwAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAACASURBVChTdVDBEYAgDKOcY8GDxXy4GA8Gq8FgQa094GiTpgEJIbSG4zdqPSIYOT8Ya4p7KXt0FYBBwNjyHQdMdfSK3GY8T3rx+u4oGThR5eqgjgqh4Sml6Q1VTMFQm+UYR4PJs3WS0Mflh72FAkxNbHpi9fWNJrnRJoPdTNd/OQEgeT/N8QsrywAAAABJRU5ErkJggg==";
+
+const cheese_tex = new Image();
+cheese_tex.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAIAAADZF8uwAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABfSURBVChTYzx8mIEgYCKoAqiAKEWMEOtsbLCbeOQISBxqUnNzE1ZVEM0I63CpQ3cTpjqICNQkR8c6iHVwdUAGnI2wDlndkSMooYcSBHB1cE9ARNDDCVkdnA0NJ/zhDgB0vRurRGXeFQAAAABJRU5ErkJggg==";
+
+const canvas = document.getElementById('myCanvas');
+const ctx = canvas.getContext('2d');
+
+const CAT_INTERVAL_MS = 500;
+
+const fixed_dt = 8; // 125 Hz
+const MAX_FRAMETIME = 250;
+
+let sq;
+const nr = 23;
+const nc = 23;
+
+let width;
+let height;
+let pressed;
+let prevPressed;
+let paused;
+let advanceFrame;
+let simulateInputs;
+let accumulator;
+let frameCount;
+let simRate;
+let prevTime;
+
+let cs = {};
+let ss = {};
+
+let inputsToSim = {
+};
+
+function saveState() {
+    ss = JSON.parse(JSON.stringify(cs));
+}
+
+function restoreState() {
+    cs = JSON.parse(JSON.stringify(ss));
+}
+
+function level1()
+{
+    for (let r = 1; r < nr-1; r++) {
+        for (let c = 1; c < nc-1; c++) {
+            cs.board[r][c] = 'FLOOR';
+            if (r >= 4 && r <= nr-5 && c >= 4 && c <= nc-5)
+                cs.board[r][c] = 'BLOCK';
+        }
+    }
+
+    cs.board[cs.mouse.r][cs.mouse.c] = 'FLOOR';
+}
+
+function level2()
+{
+    level1();
+
+    // TODO: don't make it impossible for mouse to move
+    for (let i = 0; i < 18; i++) {
+        const r = Math.floor(Math.random()*(nr-2)+1);
+        const c = Math.floor(Math.random()*(nr-2)+1);
+        if (r == cs.mouse.r && c == cs.mouse.c) {
+            continue;
+        }
+        cs.board[r][c] = 'WALL';
+    }
+
+    cs.board[cs.mouse.r][cs.mouse.c] = 'FLOOR';
+}
+
+function level(n) {
+
+    cs.mouse = {
+        r: Math.floor(nr/2),
+        c: Math.floor(nc/2),
+    };
+
+    if (n == 1) level1();
+    else if (n== 2) level2();
+    else level2(); // TODO: win?
+
+    cs.cats = [];
+    addCat();
+}
+
+function reset()
+{
+    //Math.seedrandom('');
+    resize();
+    pressed = {};
+    prevPressed = {};
+    paused = false;
+
+    advanceFrame = false;
+    simulateInputs = false;
+    accumulator = 0;
+    frameCount = 0;
+    simRate = 1.0;
+    prevTime = 0;
+
+    cs =  {
+        level: 1,
+        numTrappedCats: 0,
+        score: 0,
+        lives: 3,
+        board: [],
+        game_over: false,
+    };
+
+    // allocate board
+    for (let r = 0; r < nr; r++) {
+        cs.board.push([]);
+        for (let c = 0; c < nc; c++)
+            cs.board[r].push('WALL');
+    }
+
+    level(1);
+
+    saveState();
+}
+
+function addCat()
+{
+    const new_cat = {cheese: false, timer: CAT_INTERVAL_MS}
+    cs.cats.push(new_cat);
+    randomlyPlace(new_cat);
+}
+
+function randomlyPlace(thing)
+{
+    // TODO: don't place cat where a cat already is
+    // TODO: place a minimum distance away from mouse?
+    // TODO: don't place cat on top of cheese
+    // TODO: don't place cat where it can't move at all
+    while (1) {
+        const r = Math.floor(Math.random()*(nr-2)+1);
+        const c = Math.floor(Math.random()*(nc-2)+1);
+        if (cs.board[r][c] == 'FLOOR') {
+            thing.r = r;
+            thing.c = c;
+            break;
+        }
+    }
+}
+
+reset();
+
+function px(x, f=0.0) { return Math.round(x) + f; }
+
+function worldToScreen(coord) {
+    return {
+        x: width/2 + coord.x*sq - nc*sq/2,
+        y: height/2 + coord.y*sq - nr*sq/2,
+        w: coord.w * sq,
+        h: coord.h * sq,
+    };
+}
+
+function drawRect(rect) {
+    const sr = worldToScreen(rect);
+    ctx.fillRect(px(sr.x - sr.w/2), px(sr.y - sr.h/2), sr.w, sr.h);
+}
+
+function drawTexture(tex, rect)
+{
+    const sr = worldToScreen(rect);
+    ctx.drawImage(tex, px(sr.x - sr.w/2), px(sr.y - sr.h/2));
+}
+
+function drawBoard()
+{
+    ctx.fillStyle = "black";
+    for (let r = 0; r < cs.board.length; r++) {
+        for (let c = 0; c < cs.board[0].length; c++) {
+            //if (cs.board[r][c] == 'WALL')       { ctx.fillStyle = "black"; }
+            //else if (cs.board[r][c] == 'FLOOR') { ctx.fillStyle = "gray"; }
+            //else if (cs.board[r][c] == 'BLOCK') { ctx.fillStyle = "green"; }
+            //drawRect({x: c, y: r, w: 1, h: 1});
+            let tex = undefined;
+            if      (cs.board[r][c] == 'WALL')  { tex = wall_tex;  }
+            else if (cs.board[r][c] == 'FLOOR') { tex = floor_tex; }
+            else if (cs.board[r][c] == 'BLOCK') { tex = block_tex; }
+            drawTexture(tex, {x: c, y: r, w: 1, h: 1});
+        }
+    }
+    //ctx.fillStyle = "purple";
+    //drawRect({x: cs.mouse.c, y: cs.mouse.r, w: 1, h: 1});
+    drawTexture(mouse_tex, {x: cs.mouse.c, y: cs.mouse.r, w: 1, h: 1});
+
+    for (let cat of cs.cats) {
+        //ctx.fillStyle = (cs.cats[i].cheese) ? "yellow" : "orange";
+        //drawRect({x: cs.cats[i].c, y: cs.cats[i].r, w: 1, h: 1});
+        const tex = cat.cheese ? cheese_tex : cat_tex;
+        drawTexture(cat_tex, {x: cat.c, y: cat.r, w: 1, h: 1});
+    }
+}
+
+function drawText(r, c, text, fill="white", stroke="black", size=50)
+{
+    const tr = worldToScreen({x: c, y: r, w: 1, h: 1});
+    ctx.font = `${size}px Calibri`;
+    ctx.lineWidth = 2;
+    ctx.fillStyle = fill;
+    ctx.strokeStyle = stroke;
+    if (fill) ctx.fillText(text, tr.x, tr.y);
+    if (stroke) ctx.strokeText(text, tr.x, tr.y);
+}
+
+function drawTextCenter(text) { drawText(Math.floor(nr/2), Math.floor(nc/2)-2, text); }
+
+function draw() {
+    ctx.clearRect(0, 0, width, height);
+
+    drawBoard();
+    drawText(nr-0.8, 0, `Score: ${cs.score}`, "white", null, 30);
+    drawText(nr-0.8, nc-4, `Lives: ${cs.lives}`, "white", null, 30);
+
+    if (cs.game_over) {
+        drawTextCenter("GAME OVER");
+    } else if (paused) {
+        drawTextCenter("PAUSED");
+    }
+}
+
+function catAt(r, c) {
+    for (const cat of cs.cats)
+        if (cat.r == r && cat.c == c)
+            return cat;
+    return null;
+}
+
+function aCatIsAt(r, c) {
+    for (const cat of cs.cats)
+        if (cat.r == r && cat.c == c)
+            return true;
+    return false;
+}
+
+function aCatIsTrappedAt(r, c) {
+    for (const cat of cs.cats)
+        if (cat.r == r && cat.c == c && !cat.cheese)
+            return !catCanMove(cat);
+    return false;
+}
+
+// TODO: cat can't move to a square already occupied by a cat
+function catCanMove(cat)
+{
+    // check the 9 squares surrounding the cat
+    for (let r = -1; r <= 1; r++) {
+        for (let c = -1; c <= 1; c++) {
+            if (r == 0 && c == 0) continue;
+            if (cs.board[cat.r+r][cat.c+c] == 'FLOOR')
+                return true;
+        }
+    }
+    return false;
+}
+
+// TODO: don't let cats be on the same square
+function moveCatRandomly(cat)
+{
+    while (1) {
+        const r = Math.floor(Math.random()*9);
+        if      (r == 0 && cs.board[cat.r-1][cat.c-1] == 'FLOOR') { cat.r--; cat.c--; return; }
+        else if (r == 1 && cs.board[cat.r-1][cat.c  ] == 'FLOOR') { cat.r--;          return; }
+        else if (r == 2 && cs.board[cat.r-1][cat.c+1] == 'FLOOR') { cat.r--; cat.c++; return; }
+        else if (r == 3 && cs.board[cat.r  ][cat.c-1] == 'FLOOR') {          cat.c--; return; }
+        else if (r == 4 && cs.board[cat.r  ][cat.c  ] == 'FLOOR') {                   return; }
+        else if (r == 5 && cs.board[cat.r  ][cat.c+1] == 'FLOOR') {          cat.c++; return; }
+        else if (r == 6 && cs.board[cat.r+1][cat.c-1] == 'FLOOR') { cat.r++; cat.c--; return; }
+        else if (r == 7 && cs.board[cat.r+1][cat.c  ] == 'FLOOR') { cat.r++;          return; }
+        else if (r == 8 && cs.board[cat.r+1][cat.c+1] == 'FLOOR') { cat.r++; cat.c++; return; }
+    }
+}
+
+function canPush(br, bc, dr, dc)
+{
+    if (cs.board[br][bc] != 'BLOCK') { console.error("canPush() expects BLOCK"); }
+
+    const dst = cs.board[br+dr][bc+dc];
+
+    if (dst == 'FLOOR') {
+        if (aCatIsTrappedAt(br+dr, bc+dc))
+            return false;
+        else
+            return true;
+    }
+
+    if (dst == 'BLOCK')
+        return canPush(br+dr, bc+dc, dr, dc);
+
+    return false;
+}
+
+function pushBlock(br, bc, dr, dc)
+{
+    if (cs.board[br][bc] != 'BLOCK') { console.error("pushBlock() expects BLOCK"); }
+
+    if (cs.board[br+dr][bc+dc] == 'BLOCK')
+        pushBlock(br+dr, bc+dc, dr, dc);
+
+    cs.board[br+dr][bc+dc] = 'BLOCK';
+    if (aCatIsAt(br+dr, bc+dc)) {
+        const cat = catAt(br+dr, bc+dc);
+        if (cat.cheese)
+            removeCat(cat);
+        else
+            moveCatRandomly(cat);
+    }
+    cs.board[br][bc] = 'FLOOR';
+}
+
+function handleInput(t, dt) {
+
+    if (cs.game_over)
+        return;
+
+    let dr=0, dc=0;
+    if (pressed.ArrowLeft && !prevPressed.ArrowLeft)    { dc = -1; }
+    if (pressed.ArrowRight && !prevPressed.ArrowRight)  { dc =  1; }
+    if (pressed.ArrowUp && !prevPressed.ArrowUp)        { dr = -1; }
+    if (pressed.ArrowDown && !prevPressed.ArrowDown)    { dr =  1; }
+
+    const br = cs.mouse.r+dr;
+    const bc = cs.mouse.c+dc;
+
+    let canMove = true;
+    if (cs.board[br][bc] == 'BLOCK') {
+        if (canPush(br, bc, dr, dc)) {
+            pushBlock(br, bc, dr, dc);
+        } else {
+            canMove = false;
+        }
+    } else if (cs.board[br][bc] == 'WALL') {
+        canMove = false;
+    }
+
+    if (canMove) {
+        cs.mouse.r += dr;
+        cs.mouse.c += dc;
+    }
+
+    if (cs.mouse.c <= 0)     { cs.mouse.c = 1; }
+    if (cs.mouse.c >= nc-1)  { cs.mouse.c = nc-2; }
+    if (cs.mouse.r <= 0)     { cs.mouse.r = 1; }
+    if (cs.mouse.r >= nr-1)  { cs.mouse.r = nr-2; }
+
+    Object.assign(prevPressed, pressed);
+}
+
+function updateCat(cat, dt)
+{
+    if (cat.cheese)
+        return;
+
+    if (cat.timer > 0) {
+        cat.timer -= dt;
+        return;
+    }
+    cat.timer += CAT_INTERVAL_MS;
+
+    // pick which way would move cat toward mouse
+    let dr = 0, dc = 0;
+    if (cs.mouse.c > cat.c) { dc = 1; }
+    if (cs.mouse.c < cat.c) { dc = -1; }
+    if (cs.mouse.r > cat.r) { dr = 1; }
+    if (cs.mouse.r < cat.r) { dr = -1; }
+
+    // if cat can move toward mouse, move toward it
+    // otherwise, move randomly
+    // TODO: this code can probably be simplified
+    const dst = cs.board[cat.r+dr][cat.c+dc];
+    const dst_dc = cs.board[cat.r][cat.c+dc];
+    const dst_dr = cs.board[cat.r+dr][cat.c];
+    if (dst == 'FLOOR') {
+        cat.c += dc;
+        cat.r += dr;
+    } else if (dst_dc == 'FLOOR') {
+        cat.c += dc;
+        if (dc == 0)
+            moveCatRandomly(cat);
+    } else if (dst_dr == 'FLOOR') {
+        cat.r += dr;
+        if (dr == 0)
+            moveCatRandomly(cat);
+    } else {
+        moveCatRandomly(cat);
+    }
+
+    // TODO: only turn cat to cheese when all existing cats are trapped
+    if (!catCanMove(cat)) {
+        cat.cheese = true;
+        cs.numTrappedCats++;
+        addCat();
+    }
+}
+
+function removeCat(cat) {
+    cs.cats.splice(cs.cats.indexOf(cat), 1);
+}
+
+function nextLevel() {
+    cs.numTrappedCats = 0;
+    cs.level++;
+    level(cs.level);
+}
+
+function update(t, dt) {
+
+    if (cs.game_over)
+        return;
+
+    for (const cat of cs.cats) {
+        updateCat(cat, dt);
+
+        if (cs.numTrappedCats == 1)
+            nextLevel();
+
+        // check if caught mouse
+        if (cat.r == cs.mouse.r && cat.c == cs.mouse.c) {
+            if (cat.cheese) {
+                removeCat(cat);
+                cs.score += 100;
+            } else {
+                cs.lives--;
+                if (cs.lives == 0)
+                    cs.game_over = true;
+                else
+                    randomlyPlace(cs.mouse);
+            }
+        }
+    }
+}
+
+function simulateInputOnFrame(n, verbose=true) {
+    if (n in inputsToSim) {
+        for (let input of inputsToSim[n]) {
+            if (verbose) { console.log(`input '${input.key}' ${input.mode} on frame ${n}`); }
+            let e = {key: input.key};
+            if (input.mode == 'down')   { keydown(e); }
+            else                        { keyup(e); }
+        }
+    }
+}
+
+function loop(t) {
+    let frameTime = t - prevTime;
+    prevTime = t;
+
+    if (!paused || advanceFrame) {
+        frameCount++;
+
+        if (frameTime > MAX_FRAMETIME) {
+            console.log(`frameTime > MAX_FRAMETIME : ${frameTime}`);
+            frameTime = MAX_FRAMETIME;
+        }
+
+        accumulator += frameTime * simRate;
+
+        while (accumulator >= fixed_dt) {
+            if (simulateInputs)
+                simulateInputOnFrame(frameCount);
+            handleInput(t, fixed_dt);
+            update(t, fixed_dt);
+            accumulator -= fixed_dt;
+        }
+        advanceFrame = false;
+    }
+    draw();
+    window.requestAnimationFrame(loop);
+}
+
+loop(0);
+
+function blur(e) {
+    paused = true;
+}
+
+function focus(e) {
+}
+
+function resize(e) {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+    const sqh = Math.round(height/(nr+2));
+    const sqw = Math.round(width/(nc+2));
+    //sq = Math.min(sqh, sqw);
+    sq = 12;
+}
+
+function keydown(e) {
+    if (e.key === 'Escape') {
+        paused = !paused;
+    } else if (e.key === 's') {
+        saveState();
+    } else if (e.key === 'd') {
+        restoreState();
+    } else if (e.key === ',' || e.key === '.') {
+        if (e.key === ',')
+            simRate /= 2;
+        else if (e.key === '.')
+            simRate *= 2;
+        console.log(`simRate: ${simRate}`);
+    } else if (e.key === '`') {
+        advanceFrame = true;
+    } else if (e.key === 'r') {
+        reset();
+    } else {
+        pressed[e.key] = true;
+    }
+}
+
+function keyup(e) {
+    if (e.key === 'Escape') {
+    } else if (e.key === 'r') {
+    } else {
+        pressed[e.key] = false;
+    }
+}
+
+window.addEventListener('blur', blur);
+window.addEventListener('focus', focus);
+window.addEventListener('keydown', keydown);
+window.addEventListener('keyup', keyup);
+window.addEventListener('resize', resize);
+
+        </script>
+    </body>
+
+</html>
