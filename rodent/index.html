@@ -9,13 +9,6 @@ body {
     margin: 0;
     overflow: hidden;
 }
-canvas {
-    image-rendering: optimizeSpeed;
-    image-rendering: -moz-crisp-edges;
-    image-rendering: -webkit-optimize-contrast;
-    image-rendering: optimize-contrast;
-    -ms-interpolation-mode: nearest-neighbor
-}
 </style>
     </head>
 
@@ -25,11 +18,13 @@ canvas {
         <script>
 
 // TODO:
-// - fix blurring
+// - fix blurring (https://stackoverflow.com/questions/23271093/scale-images-with-canvas-without-blurring-it)
 // - add timer
 // - add more levels
 // - hard mode: faster cats
 // - allow for holding down move keys
+
+// Reference implementation: https://archive.org/details/rodents_revenge
 
 // TEXTURES:
 // see: https://onlinepngtools.com/convert-png-to-base64
