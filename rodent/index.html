@@ -26,7 +26,6 @@ canvas {
 
 // TODO:
 // - fix blurring
-// - only turn cats to cheese when all existing cats are trapped
 // - add timer
 // - add more levels
 // - hard mode: faster cats
@@ -135,8 +134,11 @@ function level(n) {
     else if (n== 2) level2();
     else level2(); // TODO: win?
 
+    cs.numRounds = 3;
     cs.cats = [];
-    addCat();
+
+    for (let i = 0; i < n; i++)
+        addCat();
 }
 
 function reset()
@@ -155,7 +157,8 @@ function reset()
 
     cs =  {
         level: 1,
-        numTrappedCats: 0,
+        numFreeCats: 0,
+        numCheese: 0,
         score: 0,
         lives: 3,
         board: [],
@@ -176,9 +179,10 @@ function reset()
 
 function addCat()
 {
-    const new_cat = {cheese: false, timer: CAT_INTERVAL_MS}
+    const new_cat = {cheese: false, trapped: false, timer: CAT_INTERVAL_MS}
     cs.cats.push(new_cat);
     randomlyPlace(new_cat);
+    cs.numFreeCats++;
 }
 
 function randomlyPlace(thing)
@@ -231,7 +235,9 @@ function drawBoard()
     drawTexture(mouse_tex, {x: cs.mouse.c, y: cs.mouse.r, w: 1, h: 1});
 
     for (let cat of cs.cats) {
-        const tex = cat.cheese ? cheese_tex : cat_tex;
+        let tex = cat_tex;
+        if (cat.cheese) tex = cheese_tex;
+        if (cat.trapped) tex = trapped_tex;
         drawTexture(tex, {x: cat.c, y: cat.r, w: 1, h: 1});
     }
 }
@@ -263,7 +269,7 @@ function draw() {
     }
 }
 
-function catAt(r, c) {
+function theCatAt(r, c) {
     for (const cat of cs.cats)
         if (cat.r == r && cat.c == c)
             return cat;
@@ -284,7 +290,6 @@ function aCatIsTrappedAt(r, c) {
     return false;
 }
 
-// TODO: cat can't move to a square already occupied by a cat
 function catCanMove(cat)
 {
     // check the 9 squares surrounding the cat
@@ -299,24 +304,25 @@ function catCanMove(cat)
     return false;
 }
 
-function catCanMoveTo(cat, r, c) {
+function catCanMoveTo(r, c) {
     return cs.board[r][c] == 'FLOOR' && !aCatIsAt(r, c);
 }
 
-// TODO: don't let cats be on the same square
 function moveCatRandomly(cat)
 {
+    if (!catCanMove(cat))
+        return;
     while (1) {
-        const r = Math.floor(Math.random()*9);
-        if      (r == 0 && cs.board[cat.r-1][cat.c-1] == 'FLOOR') { cat.r--; cat.c--; return; }
-        else if (r == 1 && cs.board[cat.r-1][cat.c  ] == 'FLOOR') { cat.r--;          return; }
-        else if (r == 2 && cs.board[cat.r-1][cat.c+1] == 'FLOOR') { cat.r--; cat.c++; return; }
-        else if (r == 3 && cs.board[cat.r  ][cat.c-1] == 'FLOOR') {          cat.c--; return; }
-        else if (r == 4 && cs.board[cat.r  ][cat.c  ] == 'FLOOR') {                   return; }
-        else if (r == 5 && cs.board[cat.r  ][cat.c+1] == 'FLOOR') {          cat.c++; return; }
-        else if (r == 6 && cs.board[cat.r+1][cat.c-1] == 'FLOOR') { cat.r++; cat.c--; return; }
-        else if (r == 7 && cs.board[cat.r+1][cat.c  ] == 'FLOOR') { cat.r++;          return; }
-        else if (r == 8 && cs.board[cat.r+1][cat.c+1] == 'FLOOR') { cat.r++; cat.c++; return; }
+        const n = Math.floor(Math.random()*9);
+        if      (n == 0 && catCanMoveTo(cat.r-1, cat.c-1)) { cat.r--; cat.c--; return; }
+        else if (n == 1 && catCanMoveTo(cat.r-1, cat.c  )) { cat.r--;          return; }
+        else if (n == 2 && catCanMoveTo(cat.r-1, cat.c+1)) { cat.r--; cat.c++; return; }
+        else if (n == 3 && catCanMoveTo(cat.r  , cat.c-1)) {          cat.c--; return; }
+        else if (n == 4 && catCanMoveTo(cat.r  , cat.c  )) {                   return; }
+        else if (n == 5 && catCanMoveTo(cat.r  , cat.c+1)) {          cat.c++; return; }
+        else if (n == 6 && catCanMoveTo(cat.r+1, cat.c-1)) { cat.r++; cat.c--; return; }
+        else if (n == 7 && catCanMoveTo(cat.r+1, cat.c  )) { cat.r++;          return; }
+        else if (n == 8 && catCanMoveTo(cat.r+1, cat.c+1)) { cat.r++; cat.c++; return; }
     }
 }
 
@@ -348,10 +354,10 @@ function pushBlock(br, bc, dr, dc)
 
     cs.board[br+dr][bc+dc] = 'BLOCK';
     if (aCatIsAt(br+dr, bc+dc)) {
-        const cat = catAt(br+dr, bc+dc);
+        const cat = theCatAt(br+dr, bc+dc);
         if (cat.cheese)
             removeCat(cat);
-        else
+        else if (!cat.trapped)
             moveCatRandomly(cat);
     }
     cs.board[br][bc] = 'FLOOR';
@@ -415,31 +421,27 @@ function updateCat(cat, dt)
 
     // if cat can move toward mouse, move toward it
     // otherwise, move randomly
-    // TODO: this code can probably be simplified
-    const dst = cs.board[cat.r+dr][cat.c+dc];
-    const dst_dc = cs.board[cat.r][cat.c+dc];
-    const dst_dr = cs.board[cat.r+dr][cat.c];
-    if (dst == 'FLOOR') {
+    if (catCanMoveTo(cat.r+dr, cat.c+dc)) {
         cat.c += dc;
         cat.r += dr;
-    } else if (dst_dc == 'FLOOR') {
+    } else if (dc != 0 && catCanMoveTo(cat.r, cat.c+dc)) {
         cat.c += dc;
-        if (dc == 0)
-            moveCatRandomly(cat);
-    } else if (dst_dr == 'FLOOR') {
+    } else if (dr != 0 && catCanMoveTo(cat.r+dr, cat.c)) {
         cat.r += dr;
-        if (dr == 0)
-            moveCatRandomly(cat);
     } else {
         moveCatRandomly(cat);
     }
 
-    // TODO: only turn cat to cheese when all existing cats are trapped
+    // check to see if cats are trapped
+    // and if trapped cats are now free
     if (!catCanMove(cat)) {
-        cat.cheese = true;
-        cs.numTrappedCats++;
-        addCat();
-        addCat();
+        if (!cat.trapped)
+            cs.numFreeCats--;
+        cat.trapped = true;
+    } else {
+        if (cat.trapped)
+            cs.numFreeCats++;
+        cat.trapped = false;
     }
 }
 
@@ -448,7 +450,8 @@ function removeCat(cat) {
 }
 
 function nextLevel() {
-    cs.numTrappedCats = 0;
+    cs.numFreeCats = 0;
+    cs.numCheese = 0;
     cs.level++;
     level(cs.level);
 }
@@ -460,9 +463,6 @@ function update(t, dt) {
 
     for (const cat of cs.cats) {
         updateCat(cat, dt);
-
-        if (cs.numTrappedCats == 3)
-            nextLevel();
 
         // check if caught mouse
         if (cat.r == cs.mouse.r && cat.c == cs.mouse.c) {
@@ -478,6 +478,18 @@ function update(t, dt) {
             }
         }
     }
+
+    if (cs.numFreeCats == 0) {
+        for (const cat of cs.cats) {
+            cat.trapped = false;
+            cat.cheese = true;
+        }
+        addCat();
+        addCat();
+        cs.numRounds--;
+    }
+    if (cs.numRounds == 0)   
+        nextLevel();
 }
 
 function simulateInputOnFrame(n, verbose=true) {
