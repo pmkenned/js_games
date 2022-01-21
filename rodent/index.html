@@ -212,7 +212,7 @@ function worldToScreen(coord) {
 
 function drawTexture(tex, rect) {
     const sr = worldToScreen(rect);
-    ctx.drawImage(tex, px(sr.x - sr.w/2), px(sr.y - sr.h/2), sr.w, sr.h);
+    ctx.drawImage(tex, px(sr.x), px(sr.y), sr.w, sr.h);
 }
 
 function drawBoard()
