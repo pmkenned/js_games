@@ -79,7 +79,7 @@ let frameCount;
 let simRate = 1.0;
 let prevTime;
 
-let editor_selection = {};
+let editor_selection;
 
 let cs = {};
 let ss = {};
@@ -465,6 +465,15 @@ function draw() {
         const sel_w = Math.abs(editor_selection.cb - editor_selection.ca) + 1;
         const sel_h = Math.abs(editor_selection.rb - editor_selection.ra) + 1;
         drawRect("hsla(240, 50%, 50%, 0.5)", {x: sel_cmin, y: sel_rmin, w: sel_w, h: sel_h});
+
+        let tr=0, tc=-Math.ceil(textures.length/nr)-1;
+        for (const ti in textures) {
+            const tex = textures[ti];
+            drawTexture(tex, {x: tc, y: tr, w: 1, h: 1});
+            tr = (tr+1) % nr;
+            if (tr == 0)
+                tc++;
+        }
     }
 }
 
@@ -892,23 +901,12 @@ function mouseup(e) {
 
 function mousemove(e) {
     if (editor_mode) {
-        if (!mouse_down_left) {
+        if (!mouse_down_left)
             return;
-        }
         const tile_info = mouse_get_tile_info(e.clientX, e.clientY);
         if (tile_info.valid) {
             editor_selection.rb = tile_info.r;
             editor_selection.cb = tile_info.c;
-            //if (editor_selection.rb < editor_selection.ra) {
-            //    const t = editor_selection.rb;
-            //    editor_selection.rb = editor_selection.ra;
-            //    editor_selection.ra = t;
-            //}
-            //if (editor_selection.cb < editor_selection.ca) {
-            //    const t = editor_selection.cb;
-            //    editor_selection.cb = editor_selection.ca;
-            //    editor_selection.ca = t;
-            //}
         }
     }
 }
@@ -939,6 +937,7 @@ function keydown(e) {
             // TODO: redo!
         } else if (e.key === 'e') {
             editor_mode = true;
+            editor_selection = {};
             paused = false;
         } else if (e.key === 'R') {
             if (recording) last_playback_frame = frameCount;
