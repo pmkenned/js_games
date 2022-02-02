@@ -15,8 +15,9 @@ body {
     <body>
         <canvas id="myCanvas"></canvas>
 
-        <script src="inputs.js"></script>
+        <script src="recordings.js"></script>
         <script src="sprites.js"></script>
+        <script src="maps.js"></script>
         <script>
 
 "use strict";
@@ -77,15 +78,75 @@ let advanceFrame;
 let accumulator;
 let frameCount;
 let simRate = 1.0;
+let simRate_msg;
+let simRate_timeout;
+
 let prevTime;
+let msg;
 
 let editor_selection;
+let editor_panel = {};
+
+// TODO: this is maintained in multiple places; bug-prone!
+const tile_names = [
+    'BALL_',
+    'BLOCK',
+    'BK_CP',
+    'BK_FR',
+    'BOMB_',
+    'FLIP_',
+    'BOOTG',
+    'BOOTR',
+    'SKATE',
+    'BRDRE',
+    'BRDRF',
+    'BTNBL',
+    'BTNBR',
+    'BTNGR',
+    'BTNRE',
+    'CHIP_',
+    'CLONE',
+    'CLMAC',
+    'END__',
+    'FIRE_',
+    '     ',
+    'HELP_',
+    'ICE__',
+    'ICEUL',
+    'ICELL',
+    'KEYC',
+    'KEYG',
+    'KEYR',
+    'KEYY',
+    'LOCKC',
+    'LOCKG',
+    'LOCKR',
+    'LOCKY',
+    'PLAY_',
+    'PUSHR',
+    'PUSHL',
+    'PUSHU',
+    'PUSHD',
+    'RAFT_',
+    'RAY__',
+    'SOCK_',
+    'WALL_',
+    'WASP_',
+    'WATER',
+];
+
+(function() {
+    let tr=0, tc=-Math.ceil(tile_names.length/nr)-1;
+    for (const ti in tile_names) {
+        editor_panel[`${tr},${tc}`] = tile_names[ti];
+        tr = (tr+1) % nr;
+        if (tr == 0)
+            tc++;
+    }
+})();
 
 let cs = {};
 let ss = {};
-
-//let last_playback_frame;
-//let inputsToSim = {};
 
 function saveState() {
     ss = JSON.parse(JSON.stringify(cs));
@@ -114,41 +175,17 @@ function goToLevel(n) {
     };
     cs.wasps = [];
     cs.tanks = [];
+    cs.rays = []; // TODO
+    cs.balls = [];
+
+    if (n < maps.length)
+        cs.map = maps[n];
 
     if (n == 1) {
-        cs.map = [
-            ['     ', '     ', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', '     ', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', '     ', '     '],
-            ['     ', '     ', 'WALL_', '     ', '     ', '     ', 'WALL_', 'WALL_', 'WALL_', '     ', '     ', '     ', 'WALL_', '     ', '     '],
-            ['     ', '     ', 'WALL_', '     ', 'CHIP_', '     ', 'WALL_', 'END__', 'WALL_', '     ', 'CHIP_', '     ', 'WALL_', '     ', '     '],
-            ['WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'LOCKG', 'WALL_', 'SOCK_', 'WALL_', 'LOCKG', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_'],
-            ['WALL_', '     ', 'KEYY1', '     ', 'LOCKC', '     ', '     ', '     ', '     ', '     ', 'LOCKR', '     ', 'KEYY1', '     ', 'WALL_'],
-            ['WALL_', '     ', 'CHIP_', '     ', 'WALL_', 'KEYC1', '     ', 'HELP_', '     ', 'KEYR1', 'WALL_', '     ', 'CHIP_', '     ', 'WALL_'],
-            ['WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'CHIP_', '     ', '     ', '     ', 'CHIP_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_'],
-            ['WALL_', '     ', 'CHIP_', '     ', 'WALL_', 'KEYC1', '     ', '     ', '     ', 'KEYR1', 'WALL_', '     ', 'CHIP_', '     ', 'WALL_'],
-            ['WALL_', '     ', '     ', '     ', 'LOCKR', '     ', '     ', 'CHIP_', '     ', '     ', 'LOCKC', '     ', '     ', '     ', 'WALL_'],
-            ['WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'LOCKY', 'WALL_', 'LOCKY', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_'],
-            ['     ', '     ', '     ', '     ', 'WALL_', '     ', '     ', 'WALL_', '     ', '     ', 'WALL_', '     ', '     ', '     ', '     '],
-            ['     ', '     ', '     ', '     ', 'WALL_', '     ', 'CHIP_', 'WALL_', 'CHIP_', '     ', 'WALL_', '     ', '     ', '     ', '     '],
-            ['     ', '     ', '     ', '     ', 'WALL_', '     ', '     ', 'WALL_', 'KEYG2', '     ', 'WALL_', '     ', '     ', '     ', '     '],
-            ['     ', '     ', '     ', '     ', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', '     ', '     ', '     ', '     '],
-        ];
         cs.chips = 11; // TODO: count automatically
         cs.player.r = 7; // TODO: find automatically
         cs.player.c = 7;
    } else if (n == 2) {
-        cs.map = [
-            ['     ', '     ', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', ],
-            ['     ', '     ', 'WALL_', '     ', '     ', 'CHIP_', '     ', '     ', 'WALL_', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', ],
-            ['     ', '     ', 'WALL_', '     ', '     ', '     ', '     ', '     ', 'WALL_', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', ],
-            ['     ', '     ', 'WALL_', '     ', '     ', 'WALL_', '     ', '     ', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', '     ', ],
-            ['WALL_', 'WALL_', 'WALL_', '     ', '     ', 'WALL_', '     ', '     ', '     ', 'WATER', 'WATER', '     ', '     ', '     ', '     ', '     ', 'CHIP_', 'WALL_', '     ', ],
-            ['WALL_', 'END__', 'SOCK_', '     ', '     ', 'WALL_', 'WALL_', '     ', '     ', 'WATER', 'WATER', '     ', 'BLOCK', 'BLOCK', '     ', 'HELP_', '     ', 'WALL_', '     ', ],
-            ['WALL_', 'WALL_', 'WALL_', '     ', '     ', 'WALL_', '     ', '     ', '     ', 'WATER', 'WATER', '     ', '     ', '     ', '     ', '     ', 'CHIP_', 'WALL_', '     ', ],
-            ['     ', '     ', 'WALL_', '     ', '     ', 'WALL_', '     ', '     ', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', '     ', ],
-            ['     ', '     ', 'WALL_', '     ', '     ', '     ', '     ', '     ', 'WALL_', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', ],
-            ['     ', '     ', 'WALL_', '     ', '     ', 'CHIP_', '     ', '     ', 'WALL_', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', ],
-            ['     ', '     ', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', ],
-        ];
         cs.chips = 4;
         cs.player.r = 5;
         cs.player.c = 14;
@@ -156,75 +193,20 @@ function goToLevel(n) {
         cs.wasps.push({r: 5, c: 7, dir: 'U', pi: 0, path: ['U', 'L', 'U', 'U', 'L', 'L', 'D', 'D', 'D', 'D', 'D', 'D', 'R', 'R', 'U', 'U', 'R', 'U']});
         cs.wasps.push({r: 6, c: 6, dir: 'U', pi: 0, path: ['R', 'U', 'U', 'L', 'U', 'U', 'L', 'L', 'D', 'D', 'D', 'D', 'D', 'D', 'R', 'R', 'U', 'U']});
    } else if (n == 3) {
-        cs.map = [
-            ['     ', '     ', '     ', '     ', '     ', '     ', '     ', 'WALL_', 'WALL_', 'WALL_', '     ', '     ', '     ', '     ', '     ', '     ', ],
-            ['     ', '     ', '     ', '     ', '     ', '     ', '     ', 'WALL_', 'END__', 'WALL_', '     ', '     ', '     ', '     ', '     ', '     ', ],
-            ['     ', '     ', '     ', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'SOCK_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', '     ', '     ', '     ', ],
-            ['     ', '     ', '     ', 'WALL_', 'PUSHD', 'PUSHL', 'PUSHL', 'PUSHL', 'PUSHL', 'PUSHL', 'PUSHL', 'PUSHL', 'WALL_', '     ', '     ', '     ', ],
-            ['     ', '     ', '     ', 'WALL_', 'PUSHD', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'PUSHU', 'WALL_', '     ', '     ', '     ', ],
-            ['WALL_', 'WALL_', 'WALL_', 'WALL_', 'PUSHD', 'WALL_', 'WATER', 'WATER', 'WATER', 'WATER', 'WALL_', 'PUSHU', 'WALL_', 'WALL_', 'WALL_', 'WALL_', ],
-            ['WALL_', 'PUSHD', 'PUSHL', 'PUSHL', 'PUSHL', 'WALL_', 'WATER', 'SKATE', 'CHIP_', 'WATER', 'WALL_', 'PUSHU', 'PUSHL', 'PUSHL', 'PUSHL', 'WALL_', ],
-            ['WALL_', 'PUSHD', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WATER', 'WATER', 'WATER', 'WATER', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'PUSHU', 'WALL_', ],
-            ['WALL_', 'PUSHD', 'WALL_', 'ICEUL', 'ICE__', 'ICE__', '     ', '     ', '     ', '     ', 'FIRE_', 'FIRE_', 'FIRE_', 'WALL_', 'PUSHU', 'WALL_', ],
-            ['WALL_', 'PUSHD', 'WALL_', 'ICE__', 'BOOTR', 'WALL_', '     ', '     ', '     ', '     ', 'FIRE_', 'BOOTG', 'FIRE_', 'WALL_', 'PUSHU', 'WALL_', ],
-            ['WALL_', 'PUSHD', 'WALL_', 'ICE__', 'CHIP_', 'WALL_', '     ', '     ', 'HELP_', '     ', 'FIRE_', 'CHIP_', 'FIRE_', 'WALL_', 'PUSHU', 'WALL_', ],
-            ['WALL_', 'PUSHD', 'WALL_', 'ICELL', 'ICE__', 'ICE__', '     ', '     ', 'FLIP_', '     ', 'FIRE_', 'FIRE_', 'FIRE_', 'WALL_', 'PUSHU', 'WALL_', ],
-            ['WALL_', 'PUSHD', 'WALL_', 'WALL_', 'WALL_', 'WALL_', '     ', '     ', '     ', '     ', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'PUSHU', 'WALL_', ],
-            ['WALL_', 'PUSHR', 'PUSHR', 'PUSHR', 'PUSHR', 'PUSHR', 'PUSHU', 'PUSHU', 'PUSHU', 'PUSHR', 'PUSHR', 'PUSHR', 'PUSHR', 'PUSHR', 'PUSHU', 'WALL_', ],
-            ['WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'PUSHU', 'CHIP_', 'PUSHU', 'PUSHU', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', ],
-            ['     ', '     ', '     ', '     ', '     ', 'WALL_', 'PUSHU', 'PUSHU', 'PUSHU', 'PUSHU', 'WALL_', '     ', '     ', '     ', '     ', '     ', ],
-            ['     ', '     ', '     ', '     ', '     ', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', '     ', '     ', '     ', '     ', '     ', ],
-        ];
         cs.chips = 4;
         cs.player.r = 10;
         cs.player.c = 7;
    } else if (n == 4) {
-        cs.map = [
-            ['WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', ],
-            ['WALL_', 'WALL_', '     ', '     ', '     ', '     ', '     ', 'CHIP_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', ],
-            ['WALL_', 'BUTNB', '     ', 'WALL_', '     ', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', '     ', '     ', '     ', '     ', '     ', 'WALL_', '     ', '     ', 'BRDRE', '     ', '     ', 'WALL_', ],
-            ['WALL_', 'WALL_', '     ', '     ', '     ', '     ', '     ', 'WALL_', 'WALL_', 'WALL_', 'SOCK_', 'WALL_', 'WALL_', 'END__', '     ', 'WALL_', '     ', '     ', 'WALL_', '     ', 'CHIP_', 'WALL_', ],
-            ['WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', '     ', 'BUTNB', 'WALL_', '     ', '     ', '     ', 'WALL_', 'WALL_', 'WALL_', 'WALL_', '     ', 'BUTNG', 'WALL_', 'WALL_', 'WALL_', 'WALL_', ],
-            ['WALL_', 'WALL_', '     ', '     ', '     ', '     ', '     ', 'WALL_', 'WALL_', '     ', '     ', '     ', 'WALL_', '     ', '     ', 'BRDRF', '     ', '     ', 'WALL_', '     ', '     ', 'WALL_', ],
-            ['WALL_', 'BUTNB', '     ', 'WALL_', '     ', 'WALL_', 'WALL_', 'WALL_', 'WALL_', '     ', 'HELP_', '     ', 'WALL_', '     ', '     ', 'WALL_', '     ', '     ', 'BRDRF', '     ', 'CHIP_', 'WALL_', ],
-            ['WALL_', 'WALL_', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', 'BUTNG', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', ],
-            ['WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', '     ', 'WALL_', '     ', '     ', 'WALL_', '     ', '     ', 'BRDRF', '     ', 'CHIP_', 'WALL_', ],
-            ['     ', '     ', '     ', '     ', 'WALL_', '     ', '     ', '     ', '     ', '     ', '     ', '     ', 'WALL_', '     ', '     ', 'BRDRE', '     ', '     ', 'WALL_', '     ', '     ', 'WALL_', ],
-            ['     ', '     ', '     ', '     ', 'WALL_', '     ', 'BK_CP', '     ', 'BK_CP', '     ', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', '     ', 'BUTNG', 'WALL_', 'WALL_', 'WALL_', 'WALL_', ],
-            ['     ', '     ', '     ', '     ', 'WALL_', '     ', '     ', 'BK_FR', '     ', '     ', 'WALL_', '     ', '     ', '     ', '     ', 'WALL_', '     ', '     ', 'WALL_', '     ', 'CHIP_', 'WALL_', ],
-            ['     ', '     ', '     ', '     ', 'WALL_', '     ', 'BK_CP', '     ', 'BK_CP', '     ', 'WALL_', '     ', '     ', '     ', '     ', 'WALL_', '     ', '     ', 'BRDRE', '     ', '     ', 'WALL_', ],
-            ['     ', '     ', '     ', '     ', 'WALL_', '     ', '     ', '     ', '     ', '     ', 'WALL_', '     ', '     ', '     ', '     ', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', ],
-            ['     ', '     ', '     ', '     ', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', ],
-        ];
         cs.chips = 9;
         cs.player.r = 5;
         cs.player.c = 10;
         cs.tanks.push({r: 1, c: 4, dir: 'U', pi: 0, path: ['D', 'D'], moving: false, reverse: false});
         cs.tanks.push({r: 5, c: 4, dir: 'U', pi: 0, path: ['D', 'D'], moving: false, reverse: false});
    } else if (n == 5) {
-        cs.map = [
-            ['WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', '     ', '     ', ],
-            ['WALL_', 'END__', 'BOMB_', '     ', '     ', '     ', '     ', '     ', '     ', '     ', 'WALL_', '     ', '     ', ],
-            ['WALL_', 'WALL_', 'WALL_', '     ', '     ', 'BOMB_', 'BOMB_', 'BOMB_', '     ', '     ', 'WALL_', '     ', '     ', ],
-            ['     ', '     ', 'WALL_', '     ', '     ', '     ', '     ', 'BOMB_', '     ', '     ', 'WALL_', '     ', '     ', ],
-            ['     ', '     ', 'WALL_', '     ', '     ', 'BOMB_', 'BOMB_', 'BOMB_', '     ', '     ', 'WALL_', '     ', '     ', ],
-            ['     ', '     ', 'WALL_', '     ', '     ', 'BOMB_', 'BOMB_', 'BOMB_', '     ', '     ', 'WALL_', '     ', '     ', ],
-            ['     ', '     ', 'WALL_', '     ', '     ', '     ', '     ', 'BOMB_', '     ', '     ', 'WALL_', '     ', '     ', ],
-            ['     ', '     ', 'WALL_', '     ', '     ', 'BOMB_', 'BOMB_', 'BOMB_', '     ', '     ', 'WALL_', '     ', '     ', ],
-            ['     ', '     ', 'WALL_', 'WALL_', 'LOCKR', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', ],
-            ['     ', '     ', 'WALL_', '     ', '     ', '     ', 'BUTNG', '     ', '     ', '     ', '     ', '     ', 'WALL_', ],
-            ['     ', '     ', 'WALL_', '     ', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', '     ', 'WALL_', '     ', 'WALL_', ],
-            ['     ', '     ', 'WALL_', '     ', '     ', '     ', 'BRDRF', '     ', 'BUTNR', '     ', 'WALL_', '     ', 'WALL_', ],
-            ['     ', '     ', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', '     ', 'WALL_', ],
-            ['     ', '     ', 'WALL_', 'WATER', 'KEYR1', 'FIRE_', '     ', '     ', '     ', '     ', '     ', '     ', 'WALL_', ],
-            ['     ', '     ', 'WALL_', 'WATER', '     ', 'FIRE_', '     ', '     ', '     ', '     ', 'HELP_', '     ', 'WALL_', ],
-            ['     ', '     ', 'WALL_', 'WATER', '     ', 'FIRE_', '     ', '     ', '     ', '     ', '     ', '     ', 'WALL_', ],
-            ['     ', '     ', 'WALL_', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', '     ', 'WALL_', ],
-            ['     ', '     ', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', 'WALL_', ],
-        ];
         cs.chips = 0;
         cs.player.r = 15;
         cs.player.c = 10;
+        cs.balls.push({r: 11, c: 7, dir: 'R'});
     } else {
         // END GAME?
         goToLevel(1);
@@ -236,20 +218,8 @@ function goToLevel(n) {
     cs.camera.c = cs.player.c;
 }
 
-function restartLevel()
-{
-    goToLevel(cs.level);
-}
-
-function nextLevel()
-{
-    goToLevel(cs.level+1);
-}
-
-function prevLevel()
-{
-    goToLevel(cs.level-1);
-}
+function nextLevel() { goToLevel(cs.level+1); }
+function prevLevel() { goToLevel(cs.level-1); }
 
 function reset(level = 1) {
     resize();
@@ -267,6 +237,7 @@ function reset(level = 1) {
         level: level,
         timer: TIMER_INTERVAL_MS,
         dir_timer: 0,
+        dead: false,
     };
 
     goToLevel(cs.level);
@@ -297,99 +268,123 @@ function drawTexture(tex, rect) {
     ctx.drawImage(tex, px(sr.x), px(sr.y), sr.w, sr.h);
 }
 
-function drawText(r, c, text, fill="white", stroke="black", size=50)
-{
-    const tr = worldToScreen({x: c, y: r, w: 1, h: 1});
-    ctx.font = `${size}px Calibri`;
-    ctx.lineWidth = 2;
-    ctx.fillStyle = fill;
-    ctx.strokeStyle = stroke;
-    if (fill) ctx.fillText(text, tr.x, tr.y);
-    if (stroke) ctx.strokeText(text, tr.x, tr.y);
+function drawText(args) {
+    const ts = 0.019;
+    args = args ?? {}; 
+    args.size = args.size ?? 40;
+    args.text = args.text ?? "";
+    args.ro = args.ro ?? 0;
+    args.co = args.co ?? 0;
+    args.r = args.r ?? Math.floor(nr/2) + args.ro;
+    args.c = args.c ?? Math.floor(nc/2) - Math.floor(args.text.length*ts*args.size/2) + args.co;
+    args.fill = args.fill ?? "black";
+    //args.stroke = args.stroke ?? "black";
+    args.bgfill = args.bgfill ?? "white";
+    args.bgstroke = args.bgstroke ?? "black";
+
+    const tr = worldToScreen({x: args.c, y: args.r, w: Math.ceil(args.text.length*ts*args.size), h: 1});
+    if (args.bgfill || args.bgstroke) {
+        ctx.beginPath();
+        ctx.rect(tr.x, tr.y, tr.w, -tr.h);
+        ctx.fillStyle = args.bgfill;
+        ctx.strokeStyle = args.bgstroke;
+        if (args.bgfill) ctx.fill();
+        if (args.bgstroke) ctx.stroke();
+    }
+    ctx.font = `${args.size}px Courier New`;
+    ctx.lineWidth = 1;
+    ctx.fillStyle = args.fill;
+    ctx.strokeStyle = args.stroke;
+    const offset = sq/5;
+    if (args.fill) ctx.fillText(args.text, tr.x+offset, tr.y-offset);
+    if (args.stroke) ctx.strokeText(args.text, tr.x+offset, tr.y-offset);
 }
 
-function drawTextCenter(text) { drawText(Math.floor(nr/2), Math.floor(nc/2)-2, text); }
+function tile_name_to_tex(m)
+{
+    let tex = null;
+    if      (m === null)    tex = help_tex;
+    else if (m == 'BALL_')  tex = ball_tex;
+    else if (m == 'BLOCK')  tex = block_tex;
+    else if (m == 'BK_CP')  tex = block_tex;
+    else if (m == 'BK_FR')  tex = block_tex;
+    else if (m == 'BOMB_')  tex = bomb_tex;
+    else if (m == 'FLIP_')  tex = boot_flipper_tex;
+    else if (m == 'BOOTG')  tex = boot_green_tex;
+    else if (m == 'BOOTR')  tex = boot_red_tex;
+    else if (m == 'SKATE')  tex = boot_skate_tex;
+    else if (m == 'BRDRE')  tex = border_empty_tex;
+    else if (m == 'BRDRF')  tex = border_full_tex;
+    else if (m == 'X')      tex = button_big_brown_tex;
+    else if (m == 'X')      tex = button_big_cyan_tex;
+    else if (m == 'X')      tex = button_big_gray_tex;
+    else if (m == 'BTNBL')  tex = button_blue_tex;
+    else if (m == 'BTNBR')  tex = button_brown_tex;
+    else if (m == 'BTNGR')  tex = button_green_tex;
+    else if (m == 'BTNRE')  tex = button_red_tex;
+    else if (m == 'CHIP_')  tex = chip_tex;
+    else if (m == 'CLONE')  tex = clone_tex;
+    else if (m == 'CLMAC')  tex = clone_machine_tex;
+    else if (m == 'END__')  tex = end_tex;
+    else if (m == 'FIRE_')  tex = fire_tex;
+    else if (m == '     ')  tex = floor_tex;
+    else if (m == 'X')      tex = floor_edge_tex;
+    else if (m == 'X')      tex = gravel_tex;
+    else if (m == 'HELP_')  tex = help_tex;
+    else if (m == 'ICE__')  tex = ice_tex;
+    else if (m == 'ICEUL')  tex = ice_ul_tex;
+    else if (m == 'ICELL')  tex = ice_ll_tex;
+    else if (m.substr(0,4) == 'KEYC')  tex = key_cyan_tex;
+    else if (m.substr(0,4) == 'KEYG')  tex = key_green_tex;
+    else if (m.substr(0,4) == 'KEYR')  tex = key_red_tex;
+    else if (m.substr(0,4) == 'KEYY')  tex = key_yellow_tex;
+    else if (m == 'LOCKC')  tex = lock_cyan_tex;
+    else if (m == 'LOCKG')  tex = lock_green_tex;
+    else if (m == 'LOCKR')  tex = lock_red_tex;
+    else if (m == 'LOCKY')  tex = lock_yellow_tex;
+    else if (m == 'X')      tex = monster_back_tex;
+    else if (m == 'X')      tex = monster_front_tex;
+    else if (m == 'X')      tex = monster_left_tex;
+    else if (m == 'X')      tex = monster_right_tex;
+    else if (m == 'X')      tex = player_back_tex;
+    else if (m == 'PLAY_')  tex = player_front_tex;
+    else if (m == 'X')      tex = player_left_tex;
+    else if (m == 'X')      tex = player_right_tex;
+    else if (m == 'PUSHR')  tex = push_right_tex;
+    else if (m == 'PUSHL')  tex = push_left_tex;
+    else if (m == 'PUSHU')  tex = push_up_tex;
+    else if (m == 'PUSHD')  tex = push_down_tex;
+    else if (m == 'RAFT_')  tex = raft_tex;
+    else if (m == 'RAY__')  tex = ray_tex;
+    else if (m == 'SOCK_')  tex = socket_tex;
+    else if (m == 'X')      tex = tank_up_tex;
+    else if (m == 'X')      tex = tank_down_tex;
+    else if (m == 'X')      tex = tank_left_tex;
+    else if (m == 'X')      tex = tank_right_tex;
+    else if (m == 'X')      tex = thief_tex;
+    else if (m == 'X')      tex = swim_back_tex;
+    else if (m == 'X')      tex = swim_front_tex;
+    else if (m == 'X')      tex = swim_left_tex;
+    else if (m == 'X')      tex = swim_right_tex;
+    else if (m == 'WALL_')  tex = wall_tex;
+    else if (m == 'X')      tex = wall_blue_tex;
+    else if (m == 'WASP_')  tex = wasp_tex;
+    else if (m == 'WATER')  tex = water_tex;
+    else                    tex = help_tex;
+    return tex;
+}
 
 function draw() {
     ctx.clearRect(0, 0, width, height);
 
     for (let r = 0; r < nr; r++) {
         for (let c = 0; c < nc; c++) {
-            const rm = cs.player.r - Math.floor(nr/2) + r;
-            const cm = cs.player.c - Math.floor(nc/2) + c;
+            const rm = cs.camera.r - Math.floor(nr/2) + r;
+            const cm = cs.camera.c - Math.floor(nc/2) + c;
             let m;
             if (rm < 0 || cm < 0 || rm >= cs.map.length || cm >= cs.map[0].length) m = null;
             else m = cs.map[rm][cm];
-            let tex = null;
-            if      (m === null)    tex = help_tex;
-            else if (m == 'BALL')   tex = ball_tex;
-            else if (m == 'BLOCK')  tex = block_tex;
-            else if (m == 'BK_CP')  tex = block_tex;
-            else if (m == 'BK_FR')  tex = block_tex;
-            else if (m == 'X')      tex = blue_creature_tex;
-            else if (m == 'X')      tex = blue_creature_down_tex;
-            else if (m == 'X')      tex = blue_creature_left_tex;
-            else if (m == 'X')      tex = blue_creature_right_tex;
-            else if (m == 'BOMB_')  tex = bomb_tex;
-            else if (m == 'FLIP_')  tex = boot_flipper_tex;
-            else if (m == 'BOOTG')  tex = boot_green_tex;
-            else if (m == 'BOOTR')  tex = boot_red_tex;
-            else if (m == 'SKATE')  tex = boot_skate_tex;
-            else if (m == 'BRDRE')  tex = border_empty_tex;
-            else if (m == 'BRDRF')  tex = border_full_tex;
-            else if (m == 'X')      tex = button_big_brown_tex;
-            else if (m == 'X')      tex = button_big_cyan_tex;
-            else if (m == 'X')      tex = button_big_gray_tex;
-            else if (m == 'BUTNB')  tex = button_blue_tex;
-            else if (m == 'X')      tex = button_brown_tex;
-            else if (m == 'BUTNG')  tex = button_green_tex;
-            else if (m == 'BUTNR')  tex = button_red_tex;
-            else if (m == 'CHIP_')  tex = chip_tex;
-            else if (m == 'END__')  tex = end_tex;
-            else if (m == 'FIRE_')  tex = fire_tex;
-            else if (m == '     ')  tex = floor_tex;
-            else if (m == 'X')      tex = floor_edge_tex;
-            else if (m == 'X')      tex = gravel_tex;
-            else if (m == 'HELP_')  tex = help_tex;
-            else if (m == 'ICE__')  tex = ice_tex;
-            else if (m == 'ICEUL')  tex = ice_ul_tex;
-            else if (m == 'ICELL')  tex = ice_ll_tex;
-            else if (m.substr(0,4) == 'KEYC')  tex = key_cyan_tex;
-            else if (m.substr(0,4) == 'KEYG')  tex = key_green_tex;
-            else if (m.substr(0,4) == 'KEYR')  tex = key_red_tex;
-            else if (m.substr(0,4) == 'KEYY')  tex = key_yellow_tex;
-            else if (m == 'LOCKC')  tex = lock_cyan_tex;
-            else if (m == 'LOCKG')  tex = lock_green_tex;
-            else if (m == 'LOCKR')  tex = lock_red_tex;
-            else if (m == 'LOCKY')  tex = lock_yellow_tex;
-            else if (m == 'X')      tex = missile_tex;
-            else if (m == 'X')      tex = missile_shooter_tex;
-            else if (m == 'X')      tex = monster_back_tex;
-            else if (m == 'X')      tex = monster_front_tex;
-            else if (m == 'X')      tex = monster_left_tex;
-            else if (m == 'X')      tex = monster_right_tex;
-            else if (m == 'X')      tex = player_back_tex;
-            else if (m == 'PLAY')   tex = player_front_tex;
-            else if (m == 'X')      tex = player_left_tex;
-            else if (m == 'X')      tex = player_right_tex;
-            else if (m == 'PUSHR')  tex = push_right_tex;
-            else if (m == 'PUSHL')  tex = push_left_tex;
-            else if (m == 'PUSHU')  tex = push_up_tex;
-            else if (m == 'PUSHD')  tex = push_down_tex;
-            else if (m == 'RAFT_')  tex = raft_tex;
-            else if (m == 'X')      tex = ray_tex;
-            else if (m == 'SOCK_')  tex = socket_tex;
-            else if (m == 'X')      tex = thief_tex;
-            else if (m == 'X')      tex = swim_back_tex;
-            else if (m == 'X')      tex = swim_front_tex;
-            else if (m == 'X')      tex = swim_left_tex;
-            else if (m == 'X')      tex = swim_right_tex;
-            else if (m == 'WALL_')  tex = wall_tex;
-            else if (m == 'X')      tex = wall_blue_tex;
-            else if (m == 'WASP_')  tex = wasp_tex;
-            else if (m == 'WATER')  tex = water_tex;
-            else                    tex = help_tex;
-
+            let tex = tile_name_to_tex(m);
             drawTexture(tex, {x: c, y: r, w: 1, h: 1});
         }
     }
@@ -408,17 +403,27 @@ function draw() {
             player_tex = player_left_tex;
         else if (cs.player.dir == 'R')
             player_tex = player_right_tex;
+    } else if (player_tile == 'FIRE_') {
+        if (!cs.player.boot_flipper) {
+            player_tex = burn_tex;
+        } else {
+            player_tex = player_front_tex; // TODO
+        }
     } else if (player_tile == 'WATER') {
-        if (cs.player.dir == ' ')
-            player_tex = swim_front_tex;
-        else if (cs.player.dir == 'U')
-            player_tex = swim_back_tex;
-        else if (cs.player.dir == 'D')
-            player_tex = swim_front_tex;
-        else if (cs.player.dir == 'L')
-            player_tex = swim_left_tex;
-        else if (cs.player.dir == 'R')
-            player_tex = swim_right_tex;
+        if (!cs.player.boot_flipper) {
+            player_tex = splash_tex;
+        } else {
+            if (cs.player.dir == ' ')
+                player_tex = swim_front_tex;
+            else if (cs.player.dir == 'U')
+                player_tex = swim_back_tex;
+            else if (cs.player.dir == 'D')
+                player_tex = swim_front_tex;
+            else if (cs.player.dir == 'L')
+                player_tex = swim_left_tex;
+            else if (cs.player.dir == 'R')
+                player_tex = swim_right_tex;
+        }
     } else if (player_tile.substr(0,3) == 'ICE') {
         if (cs.player.dir == ' ')
             player_tex = player_ice_front_tex;
@@ -432,49 +437,69 @@ function draw() {
             player_tex = player_ice_right_tex;
     }
 
-    drawTexture(player_tex, {x: Math.floor(nc/2), y: Math.floor(nr/2), w: 1, h: 1});
+    const rp = Math.floor(nr/2) + cs.player.r - cs.camera.r;
+    const cp = Math.floor(nc/2) + cs.player.c - cs.camera.c;
+    drawTexture(player_tex, {x: cp, y: rp, w: 1, h: 1});
+
+    // TODO: DRY this code
 
     for (const tank of cs.tanks) {
-        const rt = Math.floor(nr/2) + tank.r - cs.player.r;
-        const ct = Math.floor(nc/2) + tank.c - cs.player.c;
+        const rt = Math.floor(nr/2) + tank.r - cs.camera.r;
+        const ct = Math.floor(nc/2) + tank.c - cs.camera.c;
         if (rt < 0 || rt >= nr || ct < 0 || ct >= nc)
             continue;
         // TODO: choose tank_tex based on tank.dir
-        drawTexture(blue_creature_tex, {x: ct, y: rt, w: 1, h: 1});
+        drawTexture(tank_up_tex, {x: ct, y: rt, w: 1, h: 1});
     }
 
     for (const wasp of cs.wasps) {
-        const rw = Math.floor(nr/2) + wasp.r - cs.player.r;
-        const cw = Math.floor(nc/2) + wasp.c - cs.player.c;
+        const rw = Math.floor(nr/2) + wasp.r - cs.camera.r;
+        const cw = Math.floor(nc/2) + wasp.c - cs.camera.c;
         if (rw < 0 || rw >= nr || cw < 0 || cw >= nc)
             continue;
         // TODO: choose wasp_tex based on wasp.dir
         drawTexture(wasp_tex, {x: cw, y: rw, w: 1, h: 1});
     }
 
+    for (const ball of cs.balls) {
+        const rb = Math.floor(nr/2) + ball.r - cs.camera.r;
+        const cb = Math.floor(nc/2) + ball.c - cs.camera.c;
+        if (rb < 0 || rb >= nr || cb < 0 || cb >= nc)
+            continue;
+        drawTexture(ball_tex, {x: cb, y: rb, w: 1, h: 1});
+    }
+
     if (recording)
-        drawText(0, (nc/2)-3, "RECORDING");
+        drawText({r: 0, text: "RECORDING"});
     if (playback)
-        drawText(0, (nc/2)-3, "PLAYBACK");
+        drawText({r: 0, text: "PLAYBACK"});
     if (paused)
-        drawTextCenter("PAUSED");
+        drawText({text: "PAUSED"});
     if (editor_mode) {
-        drawText(0, (nc/2)-3, "EDITOR");
+        drawText({r: 0, text: "EDITOR"});
         const sel_cmin = Math.min(editor_selection.ca, editor_selection.cb);
         const sel_rmin = Math.min(editor_selection.ra, editor_selection.rb);
         const sel_w = Math.abs(editor_selection.cb - editor_selection.ca) + 1;
         const sel_h = Math.abs(editor_selection.rb - editor_selection.ra) + 1;
         drawRect("hsla(240, 50%, 50%, 0.5)", {x: sel_cmin, y: sel_rmin, w: sel_w, h: sel_h});
 
-        let tr=0, tc=-Math.ceil(textures.length/nr)-1;
-        for (const ti in textures) {
-            const tex = textures[ti];
+        let tr=0, tc=-Math.ceil(tile_names.length/nr)-1;
+        for (const ti in tile_names) {
+            const tex = tile_name_to_tex(tile_names[ti]);
             drawTexture(tex, {x: tc, y: tr, w: 1, h: 1});
             tr = (tr+1) % nr;
             if (tr == 0)
                 tc++;
         }
     }
+
+    if (cs.dead) {
+        drawText({text: msg, size: 20});
+        drawText({ro: 2, text: "Press r to restart", size: 20});
+    }
+
+    if (simRate_msg !== undefined)
+        drawText({text: simRate_msg, size: 30});
 }
 
 function canGo(dr, dc)
@@ -583,16 +608,16 @@ function move(dr, dc)
             cs.map[r2][c2] = 'BLOCK';
     }
 
-    if (cs.map[r][c] == 'BUTNB') {
+    if (cs.map[r][c] == 'BTNBL') {
         for (const tank of cs.tanks)
             tank.moving = true;
     }
 
-    if (cs.map[r][c] == 'BUTNR') {
+    if (cs.map[r][c] == 'BTNRE') {
         console.log('TODO: red button');
     }
 
-    if (cs.map[r][c] == 'BUTNG') {
+    if (cs.map[r][c] == 'BTNGR') {
         for (let rx = 0; rx < cs.map.length; rx++) {
             for (let cx = 0; cx < cs.map[0].length; cx++) {
                 if      (cs.map[rx][cx] == 'BRDRE') cs.map[rx][cx] = 'BRDRF';
@@ -614,10 +639,50 @@ function move(dr, dc)
 
     cs.player.r = r;
     cs.player.c = c;
+    cs.camera.r = cs.player.r;
+    cs.camera.c = cs.player.c;
+
     if      (dr > 0) cs.player.dir = 'D';
     else if (dr < 0) cs.player.dir = 'U';
     else if (dc > 0) cs.player.dir = 'R';
     else if (dc < 0) cs.player.dir = 'L';
+
+    for (const tank of cs.tanks) {
+        if (tank.r == r && tank.c == c) {
+            msg = "Look out for creatures!";
+            cs.dead = true;
+        }
+    }
+
+    for (const wasp of cs.wasps) {
+        if (wasp.r == r && wasp.c == c) {
+            msg = "Look out for creatures!";
+            cs.dead = true;
+        }
+    }
+
+    if (cs.map[r][c] == 'FIRE_' && !cs.player.boot_red) {
+        msg = "Oops! Don't step in the fire without fire boots!";
+        cs.dead = true;
+    }
+
+    if (cs.map[r][c] == 'WATER' && !cs.player.boot_flipper) {
+        msg = "Oops! Chip can't swim without flippers!";
+        cs.dead = true;
+    }
+
+    if (cs.map[r][c] == 'CHIP_') {
+        cs.map[r][c] = '     ';
+        cs.chips--;
+    }
+
+    if (cs.map[r][c] == 'SOCK_') {
+        cs.map[r][c] = '     ';
+    }
+
+    if (cs.map[r][c] == 'END__') {
+        nextLevel();
+    }
 }
 
 function handleInput(t, dt) {
@@ -654,51 +719,6 @@ function handleInput(t, dt) {
 }
 
 function update(t, dt) {
-
-    const pr = cs.player.r;
-    const pc = cs.player.c;
-
-    for (const tank of cs.tanks) {
-        if (tank.r == pr && tank.c == pc) {
-            alert("Look out for creatures!");
-            restartLevel();
-            return;
-        }
-    }
-
-    for (const wasp of cs.wasps) {
-        if (wasp.r == pr && wasp.c == pc) {
-            alert("Look out for creatures!");
-            restartLevel();
-            return;
-        }
-    }
-
-    if (cs.map[pr][pc] == 'FIRE_' && !cs.player.boot_red) {
-        alert("Oops! Don't step in the fire without fire boots!");
-        restartLevel();
-        return;
-    }
-
-    if (cs.map[pr][pc] == 'WATER' && !cs.player.boot_flipper) {
-        alert("Oops! Chip can't swim without flippers!");
-        restartLevel();
-        return;
-    }
-
-    if (cs.map[pr][pc] == 'CHIP_') {
-        cs.map[pr][pc] = '     ';
-        cs.chips--;
-    }
-
-    if (cs.map[pr][pc] == 'SOCK_') {
-        cs.map[pr][pc] = '     ';
-    }
-
-    if (cs.map[pr][pc] == 'END__') {
-        nextLevel();
-        return;
-    }
 
     if (cs.dir_timer > 0) {
         cs.dir_timer -= dt;
@@ -767,6 +787,31 @@ function update(t, dt) {
         wasp.pi = (wasp.pi + 1) % wasp.path.length;
     }
 
+    for (const ball of cs.balls) {
+        // TODO: ball should bounce off border walls, too
+        // TODO: ball should activate buttons
+        // TODO: DRY this code
+        if (ball.dir == 'R') {
+            ball.c++;
+            const btile = cs.map[ball.r][ball.c];
+            if (btile == 'WALL_' || btile == 'BRDRF') {
+                ball.c--;
+                ball.dir = 'L';
+            }
+            if (btile == 'BTNRE') {
+            }
+        } else {
+            ball.c--;
+            const btile = cs.map[ball.r][ball.c];
+            if (btile == 'WALL_' || btile == 'BRDRF') {
+                ball.c++;
+                ball.dir = 'R';
+            }
+            if (btile == 'BTNRE') {
+            }
+        }
+    }
+
     const player_tile = cs.map[cs.player.r][cs.player.c];
 
     if (player_tile.substr(0,3) == 'ICE' && !cs.player.boot_skate) {
@@ -803,6 +848,9 @@ function update(t, dt) {
         else if (player_tile == 'PUSHD')
             cs.player.r++;
     }
+
+    cs.camera.r = cs.player.r;
+    cs.camera.c = cs.player.c;
 }
 
 function simulateInputOnFrame(n, verbose=true) {
@@ -820,7 +868,7 @@ function loop(t) {
     let frameTime = t - prevTime;
     prevTime = t;
 
-    if (!editor_mode && (!paused || advanceFrame)) {
+    if (!editor_mode && !cs.dead && (!paused || advanceFrame)) {
 
         if (frameTime > MAX_FRAMETIME) {
             console.log(`frameTime > MAX_FRAMETIME : ${frameTime}`);
@@ -854,6 +902,7 @@ function blur(e) {
 }
 
 function focus(e) {
+    //paused = false;
 }
 
 function resize(e) {
@@ -861,8 +910,8 @@ function resize(e) {
     height = canvas.height = window.innerHeight;
     const sqh = Math.round(height/(nr+1));
     const sqw = Math.round(width/(nc+1));
-    //sq = Math.min(sqh, sqw);
-    sq = 32;
+    //sq = 32;
+    sq = Math.min(sqh, sqw, 32);
 }
 
 function mouse_get_tile_info(x, y)
@@ -870,14 +919,14 @@ function mouse_get_tile_info(x, y)
     let rv = {};
     rv.c = Math.floor((x - width/2 + (sq*nc/2))/sq);
     rv.r = Math.floor((y - height/2 + (sq*nr/2))/sq);
-    rv.rm = cs.player.r - Math.floor(nr/2) + rv.r;
-    rv.cm = cs.player.c - Math.floor(nc/2) + rv.c;
+    rv.tile_name = editor_panel[`${rv.r},${rv.c}`];
+    rv.rm = cs.camera.r - Math.floor(nr/2) + rv.r;
+    rv.cm = cs.camera.c - Math.floor(nc/2) + rv.c;
     rv.valid = rv.rm >= 0 && rv.cm >= 0 && rv.rm < cs.map.length && rv.cm < cs.map[0].length;
     rv.m = rv.valid ? rv.m = cs.map[rv.rm][rv.cm] : null;
     return rv;
 }
 
-// TODO: finish editor mode behavior
 function mousedown(e) {
     if (e.button == LEFT_BUTTON) mouse_down_left = true;
 
@@ -885,12 +934,26 @@ function mousedown(e) {
         if (e.button != LEFT_BUTTON)
             return;
 
-        editor_selection = {};
-
         const tile_info = mouse_get_tile_info(e.clientX, e.clientY);
-        if (tile_info.valid) {
-            editor_selection.rb = editor_selection.ra = tile_info.r;
-            editor_selection.cb = editor_selection.ca = tile_info.c;
+
+        if (tile_info.tile_name === undefined) {
+            editor_selection = {};
+            if (tile_info.valid) {
+                editor_selection.rb = editor_selection.ra = tile_info.r;
+                editor_selection.cb = editor_selection.ca = tile_info.c;
+            }
+        } else {
+            const sel_cmin = Math.min(editor_selection.ca, editor_selection.cb);
+            const sel_rmin = Math.min(editor_selection.ra, editor_selection.rb);
+            const sel_w = Math.abs(editor_selection.cb - editor_selection.ca) + 1;
+            const sel_h = Math.abs(editor_selection.rb - editor_selection.ra) + 1;
+            for (let r = sel_rmin; r < sel_rmin + sel_h; r++) {
+                for (let c = sel_cmin; c < sel_cmin + sel_w; c++) {
+                    const rm = cs.camera.r - Math.floor(nr/2) + r;
+                    const cm = cs.camera.c - Math.floor(nc/2) + c;
+                    cs.map[rm][cm] = tile_info.tile_name;
+                }
+            }
         }
     }
 }
@@ -911,6 +974,20 @@ function mousemove(e) {
     }
 }
 
+function startRecording()
+{
+    recording = true;
+    reset(cs.level);
+    inputsToSim = {};
+}
+
+function stopRecording()
+{
+    last_playback_frame = frameCount;
+    recording = false;
+    console.log(inputsToSim);
+}
+
 function keydown(e) {
     if (!editor_mode) {
         if (e.key === 'Escape') {
@@ -928,6 +1005,9 @@ function keydown(e) {
                 simRate /= 2;
             else if (e.key === '.')
                 simRate *= 2;
+            simRate_msg = `simRate: ${simRate}`;
+            if (simRate_timeout !== undefined) clearTimeout(simRate_timeout);
+            simRate_timeout = setTimeout(function() { simRate_msg = undefined; }, 1000);
             console.log(`simRate: ${simRate}`);
         } else if (e.key === '`') {
             advanceFrame = true;
@@ -940,17 +1020,16 @@ function keydown(e) {
             editor_selection = {};
             paused = false;
         } else if (e.key === 'R') {
-            if (recording) last_playback_frame = frameCount;
-            recording = !recording;
-            if (recording)  { reset(cs.level); inputsToSim = {}; }
-            else            { console.log(inputsToSim); }
+            if (!recording) startRecording();
+            else            stopRecording();
         } else if (e.key === 'P') {
-            if (!playback)
-                reset(cs.level);
+            if (recording)
+                stopRecording();
             playback = !playback;
+            if (playback)
+                reset(cs.level);
         } else if (e.key === 'r') {
             reset(cs.level);
-            //restartLevel();
         } else {
             if (recording) {
                 if (!(frameCount in inputsToSim))
@@ -965,10 +1044,16 @@ function keydown(e) {
         } else if (e.key === 'e') {
             console.log(cs.map); // TODO: output the map
             editor_mode = false;
+            cs.camera.r = cs.player.r;
+            cs.camera.c = cs.player.c;
         } else if (e.key === 'ArrowUp') {
+            cs.camera.r--;
         } else if (e.key === 'ArrowDown') {
+            cs.camera.r++;
         } else if (e.key === 'ArrowLeft') {
+            cs.camera.c--;
         } else if (e.key === 'ArrowRight') {
+            cs.camera.c++;
         } else {
         }
     }
