@@ -1,15 +1,20 @@
 "use strict";
 
 // Passwords:
-// Level 1:
-// Level 2:
-// Level 3:
-// Level 4:
-// Level 5: TQKB
-// Level 6: WNLD
-// Level 7: FXQO
-// Level 8: NHAG
-// Level 9: KCRE
+// Level  1:
+// Level  2:
+// Level  3:
+// Level  4:
+// Level  5: TQKB
+// Level  6: WNLD
+// Level  7: FXQO
+// Level  8: NHAG
+// Level  9: KCRE
+// Level 10: UVWS
+// Level 11: CNPE
+// Level 12: WVHI
+// Level 13: OCKS
+// Level 14: BTDY
 
 // Reference implementation: https://archive.org/details/chips_challenge_windows_3.x
 
@@ -20,6 +25,7 @@ const canvas = document.getElementById('myCanvas');
 const ctx = canvas.getContext('2d');
 //ctx.imageSmoothingEnabled = false; // TODO: find out why this doesn't work
 
+// TODO: make sure player can't get past pushers
 // TODO: show inventory, timer, number of chips remaining
 // TODO: buttons that move creatures
 // TODO: show player facing which way they moved
@@ -38,8 +44,9 @@ const ctx = canvas.getContext('2d');
 const fixed_dt = 8; // 125 Hz
 const MAX_FRAMETIME = 250;
 
-const TIMER_INTERVAL_MS = 100;
-const DIR_TIMER_MS = 100;
+const MS_10HZ = 100;
+const MS_5HZ = 200;
+const MS_3HZ = 333;
 
 let sq;
 const nr = 23;
@@ -54,6 +61,8 @@ let paused;
 let recording = false;
 let playback = false;
 let editor_mode;
+let selected_tile;
+let tile_hotkeys;
 let advanceFrame;
 let accumulator;
 let frameCount;
@@ -61,7 +70,7 @@ let simRate = 1.0;
 let simRate_msg;
 let simRate_timeout;
 
-let prevTime;
+let prevTime = 0;
 let msg;
 
 let editor_selection;
@@ -95,12 +104,15 @@ const tile_to_tex_name_dict = {
     END__:      [end_tex,               end_tex],
     FIRE_:      [fire_tex,              fire_tex],
     '     ':    [floor_tex,             floor_tex],
-//  'TODO':     [floor_edge_tex,        floor_edge_tex],
-//  'TODO':     [gravel_tex,            gravel_tex],
+    EDGEB:      [floor_edge_tex,        floor_edge_tex],
+    EDGER:      [floor_edge_right_tex,  floor_edge_right_tex],
+    GRAVL:      [gravel_tex,            gravel_tex],
     HELP_:      [help_tex,              help_tex],
     ICE__:      [ice_tex,               ice_tex],
     ICEUL:      [ice_ul_tex,            ice_ul_tex],
     ICELL:      [ice_ll_tex,            ice_ll_tex],
+    ICEUR:      [ice_ur_tex,            ice_ur_tex],
+    ICELR:      [ice_lr_tex,            ice_lr_tex],
     KEYC:       [key_cyan_tex,          key_cyan_tex],
     KEYG:       [key_green_tex,         key_green_tex],
     KEYR:       [key_red_tex,           key_red_tex],
@@ -138,6 +150,27 @@ const tile_to_tex_name_dict = {
     }
 })();
 
+function Timer(period_ms) {
+
+    this.period_ms = period_ms;
+    this.t = period_ms;
+
+    this.reset = function () {
+        this.t = period_ms;
+    }
+
+    this.tick = function (dt) {
+        if (this.t < 0) {
+            this.t += this.period_ms;
+            return true;
+        }
+        this.t -= dt;
+        return false;
+    }
+
+    return this;
+}
+
 let cs = {};
 let ss = {};
 
@@ -174,6 +207,7 @@ function goToLevel(n) {
         cs.map = JSON.parse(JSON.stringify(maps[n]));
 
     // count chips by default
+    cs.chips = 0;
     for (let r = 0; r < cs.map.length; r++) {
         for (let c = 0; c < cs.map[0].length; c++) {
             if (cs.map[r][c] == 'CHIP_')
@@ -196,6 +230,12 @@ function goToLevel(n) {
         cs.creatures.push({type: 'ray',  r: -9, c: -2, dir: 'U', pi: 0, path: ['U', 'U', 'U', 'S', 'U', 'U', 'L', 'L', 'L', 'L', 'L', 'L'], moving: false});
     } else if (n == 6) {
         cs.chips = 4;
+    } else if (n == 7) {
+    } else if (n == 8) {
+        cs.creatures.push({type: 'monster', r: 0, c: 8, dir: 'U'});
+    } else if (n == 9) {
+    } else if (n == 10) {
+        cs.creatures.push({type: 'wasp', r: 26, c: 0, dir: 'L', pi: 0, path: ['R', 'L']}); // TODO
     } else {
         // END GAME?
         //goToLevel(1);
@@ -236,15 +276,18 @@ function reset(level = 1) {
     //recording = false;
     //playback = false;
     editor_mode = false;
+    selected_tile = null;
+    tile_hotkeys = [];
     advanceFrame = false;
     accumulator = 0;
     frameCount = 0;
-    prevTime = 0;
 
     cs = {
         level: level,
-        timer: TIMER_INTERVAL_MS,
-        dir_timer: 0,
+        timer_10Hz: new Timer(MS_10HZ),
+        timer_5Hz: new Timer(MS_5HZ),
+        timer_3Hz: new Timer(MS_3HZ),
+        input_timer: 0,
         dead: false,
     };
 
@@ -401,6 +444,7 @@ function draw() {
         else if (creature.type == 'ball') creature_tex = ball_tex;
         else if (creature.type == 'ray')  creature_tex = ray_tex;
         else if (creature.type == 'wasp') creature_tex = wasp_tex;
+        else if (creature.type == 'monster') creature_tex = monster_front_tex;
         drawTexture(creature_tex, {x: cc, y: rc, w: 1, h: 1});
     }
 
@@ -424,6 +468,12 @@ function draw() {
         let tr=0, tc=-Math.ceil(Object.keys(tile_to_tex_name_dict).length/nr)-1;
         for (const t of Object.entries(tile_to_tex_name_dict)) {
             drawTexture(t[1][1], {x: tc, y: tr, w: 1, h: 1});
+            if (t[0] == selected_tile) {
+                drawRect("hsla(240, 50%, 50%, 0.5)", {x: tc, y: tr, w: 1, h: 1});
+            }
+            if (t[0] == tile_hotkeys[0]) { drawText({r: tr+1, c: tc, text: "1", bgfill: 'hsla(240, 50%, 50%, 0.5)'}); }
+            if (t[0] == tile_hotkeys[1]) { drawText({r: tr+1, c: tc, text: "2", bgfill: 'hsla(240, 50%, 50%, 0.5)'}); }
+            if (t[0] == tile_hotkeys[2]) { drawText({r: tr+1, c: tc, text: "3", bgfill: 'hsla(240, 50%, 50%, 0.5)'}); }
             tr = (tr+1) % nr;
             if (tr == 0)
                 tc++;
@@ -459,6 +509,8 @@ function canGo(dr, dc)
     if (cs.map[r][c] == 'BLOCK' || cs.map[r][c].substr(0,3) == 'BK_') {
         if (cs.map[r2][c2] == '     ')
             return true;
+        else if (cs.map[r2][c2] == 'BOMB_')
+            return true;
         else if (cs.map[r2][c2] == 'WATER')
             return true;
         else
@@ -485,10 +537,15 @@ function canGo(dr, dc)
 
 function move(dr, dc)
 {
-    const r = cs.player.r + dr;
-    const c = cs.player.c + dc;
-    const r2 = cs.player.r + 2*dr;
-    const c2 = cs.player.c + 2*dc;
+    cs.player.r += dr;
+    cs.player.c += dc;
+    cs.camera.r = cs.player.r;
+    cs.camera.c = cs.player.c;
+
+    const r = cs.player.r;
+    const c = cs.player.c
+    const r2 = cs.player.r + dr;
+    const c2 = cs.player.c + dc;
 
     //const t = cs.map[r][c];
     //const t2 = cs.map[r2][c2];
@@ -542,6 +599,8 @@ function move(dr, dc)
         cs.map[r][c] = '     ';
         if (cs.map[r2][c2] == 'WATER')
             cs.map[r2][c2] = 'RAFT_';
+        else if (cs.map[r2][c2] == 'BOMB_')
+            cs.map[r2][c2] = '     ';
         else
             cs.map[r2][c2] = 'BLOCK';
     }
@@ -597,10 +656,13 @@ function move(dr, dc)
         cs.boot_skate = false;
     }
 
-    cs.player.r = r;
-    cs.player.c = c;
-    cs.camera.r = cs.player.r;
-    cs.camera.c = cs.player.c;
+    if (cs.map[r][c] == 'CIRCY') {
+        // TODO: teleports should be specifically linked
+        cs.player.r += 3*dr;
+        cs.player.c += 3*dc;
+        cs.camera.r = cs.player.r;
+        cs.camera.c = cs.player.c;
+    }
 
     if (cs.map[r][c] == 'FIRE_' && !cs.player.boot_red) {
         msg = "Oops! Don't step in the fire without fire boots!";
@@ -615,6 +677,10 @@ function move(dr, dc)
     if (cs.map[r][c] == 'BOMB_') {
         msg = "Oops! Look out for bombs!";
         cs.dead = true;
+    }
+
+    if (cs.map[r][c] == 'CIRGY') {
+        cs.map[r][c] = 'WALL_';
     }
 
     if (cs.map[r][c] == 'CHIP_') {
@@ -642,6 +708,14 @@ function tryMove(dr, dc)
     else if (dr < 0) cs.player.dir = 'U';
     else if (dc > 0) cs.player.dir = 'R';
     else if (dc < 0) cs.player.dir = 'L';
+
+    if (canGo(dr, dc)) {
+        move(dr, dc);
+        return true;
+    }
+    else {
+        return false;
+    }
 }
 
 function handleInput(t, dt) {
@@ -655,19 +729,17 @@ function handleInput(t, dt) {
 
     let arrow_key_pressed = pressed.ArrowLeft || pressed.ArrowRight || pressed.ArrowUp || pressed.ArrowDown;
 
-    if (arrow_key_pressed && cs.dir_timer <= 0) {
+    if (arrow_key_pressed && cs.input_timer <= 0) {
         if (pressed.ArrowLeft)  { dc = -1; }
         if (pressed.ArrowRight) { dc =  1; }
         if (pressed.ArrowUp)    { dr = -1; }
         if (pressed.ArrowDown)  { dr =  1; }
-        cs.dir_timer = DIR_TIMER_MS;
+        cs.input_timer = MS_10HZ;
         pressed = {};
     }
 
     if (dr != 0 || dc != 0) {
         tryMove(dr, dc);
-        if (canGo(dr, dc))
-            move(dr, dc);
     }
 
     if (arrow_key_pressed) {
@@ -689,143 +761,166 @@ function update(t, dt) {
         }
     }
 
-    if (cs.dir_timer > 0) {
-        cs.dir_timer -= dt;
+    if (cs.input_timer > 0) {
+        cs.input_timer -= dt;
     }
 
-    if (cs.timer > 0) {
-        cs.timer -= dt;
-        return;
-    }
-    cs.timer += TIMER_INTERVAL_MS;
+    const tick_10Hz = cs.timer_10Hz.tick(dt);
+    const tick_5Hz = cs.timer_5Hz.tick(dt);
+    const tick_3Hz = cs.timer_3Hz.tick(dt);
 
-    // tanks
-    for (const tank of cs.creatures.filter(obj => obj.type == 'tank')) {
-        if (!tank.moving)
-            continue;
-        tank.dir = tank.path[tank.pi];
-        if (tank.reverse) {
-            if      (tank.dir == 'U')  tank.dir = 'D';
-            else if (tank.dir == 'D')  tank.dir = 'U';
-            else if (tank.dir == 'L')  tank.dir = 'R';
-            else if (tank.dir == 'R')  tank.dir = 'L';
-        }
-        if      (tank.dir == 'U') tank.r--;
-        else if (tank.dir == 'L') tank.c--;
-        else if (tank.dir == 'R') tank.c++;
-        else if (tank.dir == 'D') tank.r++;
-
-        if (tank.reverse)   tank.pi--;
-        else                tank.pi++;
-
-        if (tank.pi == tank.path.length) {
-            tank.moving = false;
-            tank.reverse = true;
-            tank.pi--;
-        } else if (tank.pi == -1) {
-            tank.moving = false;
-            tank.reverse = false;
-            tank.pi++;
-        }
-    }
-
-    // wasps
-    for (const wasp of cs.creatures.filter(obj => obj.type == 'wasp')) {
-        wasp.dir = wasp.path[wasp.pi];
-        if      (wasp.dir == 'U') wasp.r--;
-        else if (wasp.dir == 'L') wasp.c--;
-        else if (wasp.dir == 'R') wasp.c++;
-        else if (wasp.dir == 'D') wasp.r++;
-        wasp.pi = (wasp.pi + 1) % wasp.path.length;
-    }
-
-    // balls
-    for (const ball of cs.creatures.filter(obj => obj.type == 'ball')) {
-        // TODO: DRY this code
-        let btile;
-        if (ball.dir == 'R') {
-            ball.c++;
-            btile = cs.map[ball.r][ball.c];
-            if (btile == 'WALL_' || btile == 'BLUEW' || btile == 'BRDRF' || btile == 'HIDEW' || btile == 'SHOWW') {
-                ball.c--;
-                ball.dir = 'L';
+    if (tick_10Hz) {
+        // tanks
+        for (const tank of cs.creatures.filter(obj => obj.type == 'tank')) {
+            if (!tank.moving)
+                continue;
+            tank.dir = tank.path[tank.pi];
+            if (tank.reverse) {
+                if      (tank.dir == 'U')  tank.dir = 'D';
+                else if (tank.dir == 'D')  tank.dir = 'U';
+                else if (tank.dir == 'L')  tank.dir = 'R';
+                else if (tank.dir == 'R')  tank.dir = 'L';
             }
-        } else {
-            ball.c--;
-            btile = cs.map[ball.r][ball.c];
-            if (btile == 'WALL_' || btile == 'BLUEW' || btile == 'BRDRF' || btile == 'HIDEW' || btile == 'SHOWW') {
+            if      (tank.dir == 'U') tank.r--;
+            else if (tank.dir == 'L') tank.c--;
+            else if (tank.dir == 'R') tank.c++;
+            else if (tank.dir == 'D') tank.r++;
+
+            if (tank.reverse)   tank.pi--;
+            else                tank.pi++;
+
+            if (tank.pi == tank.path.length) {
+                tank.moving = false;
+                tank.reverse = true;
+                tank.pi--;
+            } else if (tank.pi == -1) {
+                tank.moving = false;
+                tank.reverse = false;
+                tank.pi++;
+            }
+        }
+    }
+
+    if (tick_10Hz) {
+        // wasps
+        for (const wasp of cs.creatures.filter(obj => obj.type == 'wasp')) {
+            wasp.dir = wasp.path[wasp.pi];
+            if      (wasp.dir == 'U') wasp.r--;
+            else if (wasp.dir == 'L') wasp.c--;
+            else if (wasp.dir == 'R') wasp.c++;
+            else if (wasp.dir == 'D') wasp.r++;
+            wasp.pi = (wasp.pi + 1) % wasp.path.length;
+        }
+    }
+
+    if (tick_10Hz) {
+        // balls
+        for (const ball of cs.creatures.filter(obj => obj.type == 'ball')) {
+            // TODO: DRY this code
+            let btile;
+            if (ball.dir == 'R') {
                 ball.c++;
-                ball.dir = 'R';
+                btile = cs.map[ball.r][ball.c];
+                if (btile == 'WALL_' || btile == 'BLUEW' || btile == 'BRDRF' || btile == 'HIDEW' || btile == 'SHOWW') {
+                    ball.c--;
+                    ball.dir = 'L';
+                }
+            } else {
+                ball.c--;
+                btile = cs.map[ball.r][ball.c];
+                if (btile == 'WALL_' || btile == 'BLUEW' || btile == 'BRDRF' || btile == 'HIDEW' || btile == 'SHOWW') {
+                    ball.c++;
+                    ball.dir = 'R';
+                }
             }
-        }
-        if (btile == 'BTNRE') {
-            for (let rx = 0; rx < cs.map.length; rx++) {
-                for (let cx = 0; cx < cs.map[0].length; cx++) {
-                    if      (cs.map[rx][cx].substr(0,4) == 'CLMC') {
-                        ;
+            if (btile == 'BTNRE') {
+                for (let rx = 0; rx < cs.map.length; rx++) {
+                    for (let cx = 0; cx < cs.map[0].length; cx++) {
+                        if      (cs.map[rx][cx].substr(0,4) == 'CLMC') {
+                            ;
+                        }
                     }
                 }
             }
         }
     }
 
-    // rays
-    for (const ray of cs.creatures.filter(obj => obj.type == 'ray')) {
-        // TODO
-        if (ray.dead)
-            continue;
-        if (!ray.moving)
-            continue;
-        let new_dir = ray.path[ray.pi];;
-        if      (new_dir == 'U') ray.r--;
-        else if (new_dir == 'L') ray.c--;
-        else if (new_dir == 'R') ray.c++;
-        else if (new_dir == 'D') ray.r++;
-        else if (new_dir == 'S') { new_dir = ray.dir; ray.moving = false; };
-        ray.dir = new_dir;
-        ray.pi = (ray.pi + 1) % ray.path.length;
-        if (cs.map[ray.r][ray.c] == 'BOMB_') {
-            ray.dead = true;
-            cs.map[ray.r][ray.c] = '     ';
+    if (tick_5Hz) {
+        // rays
+        for (const ray of cs.creatures.filter(obj => obj.type == 'ray')) {
+            if (ray.dead || !ray.moving)
+                continue;
+            let new_dir = ray.path[ray.pi];;
+            if      (new_dir == 'U') ray.r--;
+            else if (new_dir == 'L') ray.c--;
+            else if (new_dir == 'R') ray.c++;
+            else if (new_dir == 'D') ray.r++;
+            else if (new_dir == 'S') { new_dir = ray.dir; ray.moving = false; };
+            ray.dir = new_dir;
+            ray.pi = (ray.pi + 1) % ray.path.length;
+            if (cs.map[ray.r][ray.c] == 'BOMB_') {
+                ray.dead = true;
+                cs.map[ray.r][ray.c] = '     ';
+            }
         }
     }
 
-    const player_tile = cs.map[cs.player.r][cs.player.c];
-
-    // ice
-    if (player_tile.substr(0,3) == 'ICE' && !cs.player.boot_skate) {
-        if (player_tile == 'ICE__') {
-            if      (cs.player.dir == 'L') cs.player.c--;
-            else if (cs.player.dir == 'R') cs.player.c++;
-            else if (cs.player.dir == 'U') cs.player.r--;
-            else if (cs.player.dir == 'D') cs.player.r++;
-        } else if (player_tile == 'ICEUL') {
-            if      (cs.player.dir == 'L') { cs.player.dir = 'D'; cs.player.r++;    }
-            else if (cs.player.dir == 'R') { cs.player.dir = ' ';                   }
-            else if (cs.player.dir == 'U') { cs.player.dir = 'R'; cs.player.c++;    }
-            else if (cs.player.dir == 'D') { cs.player.dir = ' ';                   }
-        } else if (player_tile == 'ICELL') {
-            if      (cs.player.dir == 'L') { cs.player.dir = 'U'; cs.player.r--;    }
-            else if (cs.player.dir == 'R') { cs.player.dir = ' ';                   }
-            else if (cs.player.dir == 'U') { cs.player.dir = ' ';                   }
-            else if (cs.player.dir == 'D') { cs.player.dir = 'R'; cs.player.c++;    }
-        } else if (player_tile == 'ICEUR') {
-            console.error('TODO!');
-        } else if (player_tile == 'ICELR') {
-            console.error('TODO!');
+    if (tick_3Hz) {
+        // monsters
+        for (const monster of cs.creatures.filter(obj => obj.type == 'monster')) {
+            const dr = cs.player.r > monster.r ? 1 : (cs.player.r < monster.r) ? -1 : 0;
+            const dc = cs.player.c > monster.c ? 1 : (cs.player.c < monster.c) ? -1 : 0;
+            if (cs.map[monster.r + dr][monster.c] == '     ')
+                monster.r += dr;
+            if (cs.map[monster.r][monster.c + dc] == '     ')
+                monster.c += dc;
         }
     }
 
-    // pushers
-    if (player_tile.substr(0,4) == 'PUSH' && !cs.player.boot_green) {
-        if      (player_tile == 'PUSHL') cs.player.c--;
-        else if (player_tile == 'PUSHR') cs.player.c++;
-        else if (player_tile == 'PUSHU') cs.player.r--;
-        else if (player_tile == 'PUSHD') cs.player.r++;
-    }
+    if (tick_10Hz) {
+        const player_tile = cs.map[cs.player.r][cs.player.c];
+        // ice
+        // TODO: when hitting a wall, reverse direction
+        if (player_tile.substr(0,3) == 'ICE' && !cs.player.boot_skate) {
+            if (player_tile == 'ICE__') {
+                if      (cs.player.dir == 'L') { if (!tryMove(0, -1)) cs.player.dir = 'R'; }
+                else if (cs.player.dir == 'R') { if (!tryMove(0,  1)) cs.player.dir = 'L'; }
+                else if (cs.player.dir == 'U') { if (!tryMove(-1, 0)) cs.player.dir = 'D'; }
+                else if (cs.player.dir == 'D') { if (!tryMove( 1, 0)) cs.player.dir = 'U'; }
+            } else if (player_tile == 'ICEUL') {
+                if      (cs.player.dir == 'L') { cs.player.dir = 'D'; tryMove(1, 0);    }
+                else if (cs.player.dir == 'R') { cs.player.dir = ' ';                   }
+                else if (cs.player.dir == 'U') { cs.player.dir = 'R'; tryMove(0, 1);    }
+                else if (cs.player.dir == 'D') { cs.player.dir = ' ';                   }
+            } else if (player_tile == 'ICELL') {
+                if      (cs.player.dir == 'L') { cs.player.dir = 'U'; tryMove(-1, 0);   }
+                else if (cs.player.dir == 'R') { cs.player.dir = ' ';                   }
+                else if (cs.player.dir == 'U') { cs.player.dir = ' ';                   }
+                else if (cs.player.dir == 'D') { cs.player.dir = 'R'; tryMove(0, 1);    }
+            } else if (player_tile == 'ICEUR') {
+                if      (cs.player.dir == 'L') { cs.player.dir = ' ';                   }
+                else if (cs.player.dir == 'R') { cs.player.dir = 'D'; tryMove(1, 0);    }
+                else if (cs.player.dir == 'U') { cs.player.dir = 'L'; tryMove(0, -1);   }
+                else if (cs.player.dir == 'D') { cs.player.dir = ' ';                   }
+            } else if (player_tile == 'ICELR') {
+                if      (cs.player.dir == 'L') { cs.player.dir = ' ';                   }
+                else if (cs.player.dir == 'R') { cs.player.dir = 'D'; tryMove(-1, 0);   }
+                else if (cs.player.dir == 'U') { cs.player.dir = ' ';                   }
+                else if (cs.player.dir == 'D') { cs.player.dir = 'L'; tryMove(0, -1);   }
+            }
+        }
 
-    cs.camera.r = cs.player.r;
-    cs.camera.c = cs.player.c;
+        // pushers
+        if (player_tile.substr(0,4) == 'PUSH' && !cs.player.boot_green) {
+            if      (player_tile == 'PUSHL') tryMove( 0, -1);
+            else if (player_tile == 'PUSHR') tryMove( 0,  1);
+            else if (player_tile == 'PUSHU') tryMove(-1,  0);
+            else if (player_tile == 'PUSHD') tryMove( 1,  0);
+        }
+
+        cs.camera.r = cs.player.r;
+        cs.camera.c = cs.player.c;
+    }
 }
 
 function simulateInputOnFrame(n, verbose=true) {
@@ -902,11 +997,34 @@ function mouse_get_tile_info(x, y)
     rv.add_col_right    = (rv.c == nc-1) && (rv.r == Math.floor(nr/2));
     rv.sub_col_right    = (rv.c == nc-2) && (rv.r == Math.floor(nr/2));
     rv.tile_name = editor_panel[`${rv.r},${rv.c}`];
+    if (rv.tile_name && rv.tile_name.substr(0,3) == 'KEY')
+        rv.tile_name += '1';
     rv.rm = cs.camera.r - Math.floor(nr/2) + rv.r;
     rv.cm = cs.camera.c - Math.floor(nc/2) + rv.c;
-    rv.valid = rv.rm >= 0 && rv.cm >= 0 && rv.rm < cs.map.length && rv.cm < cs.map[0].length;
+    const in_view = rv.r >= 0 && rv.r < nc && rv.c >= 0 && rv.c < nc;
+    const in_map = rv.rm >= 0 && rv.cm >= 0 && rv.rm < cs.map.length && rv.cm < cs.map[0].length;
+    rv.valid = in_view && in_map;
     rv.m = rv.valid ? rv.m = cs.map[rv.rm][rv.cm] : null;
     return rv;
+}
+
+function apply_selected_tile_to_selection(tile)
+{
+    tile = tile ?? selected_tile;
+    if (selected_tile === null)
+        return;
+    const sel_cmin = Math.min(editor_selection.ca, editor_selection.cb);
+    const sel_rmin = Math.min(editor_selection.ra, editor_selection.rb);
+    const sel_w = Math.abs(editor_selection.cb - editor_selection.ca) + 1;
+    const sel_h = Math.abs(editor_selection.rb - editor_selection.ra) + 1;
+    for (let r = sel_rmin; r < sel_rmin + sel_h; r++) {
+        for (let c = sel_cmin; c < sel_cmin + sel_w; c++) {
+            const rm = cs.camera.r - Math.floor(nr/2) + r;
+            const cm = cs.camera.c - Math.floor(nc/2) + c;
+            //cs.map[rm][cm] = tile_info.tile_name;
+            cs.map[rm][cm] = tile;
+        }
+    }
 }
 
 function mousedown(e) {
@@ -950,27 +1068,15 @@ function mousedown(e) {
         } else if (tile_info.sub_col_right) {
             for (const row of cs.map)
                 row.pop();
-        } else if (tile_info.tile_name === undefined) {
+        } else if (tile_info.tile_name !== undefined) {
+            selected_tile = tile_info.tile_name;
+            apply_selected_tile_to_selection();
+        } else {
             editor_selection = {};
             if (tile_info.valid) {
-                // TODO: DRY
-                const rm = cs.camera.r - Math.floor(nr/2) + tile_info.r;
-                const cm = cs.camera.c - Math.floor(nc/2) + tile_info.c;
-                console.log(rm, cm);
                 editor_selection.rb = editor_selection.ra = tile_info.r;
                 editor_selection.cb = editor_selection.ca = tile_info.c;
-            }
-        } else {
-            const sel_cmin = Math.min(editor_selection.ca, editor_selection.cb);
-            const sel_rmin = Math.min(editor_selection.ra, editor_selection.rb);
-            const sel_w = Math.abs(editor_selection.cb - editor_selection.ca) + 1;
-            const sel_h = Math.abs(editor_selection.rb - editor_selection.ra) + 1;
-            for (let r = sel_rmin; r < sel_rmin + sel_h; r++) {
-                for (let c = sel_cmin; c < sel_cmin + sel_w; c++) {
-                    const rm = cs.camera.r - Math.floor(nr/2) + r;
-                    const cm = cs.camera.c - Math.floor(nc/2) + c;
-                    cs.map[rm][cm] = tile_info.tile_name;
-                }
+                apply_selected_tile_to_selection();
             }
         }
     }
@@ -988,6 +1094,7 @@ function mousemove(e) {
         if (tile_info.valid) {
             editor_selection.rb = tile_info.r;
             editor_selection.cb = tile_info.c;
+            apply_selected_tile_to_selection();
         }
     }
 }
@@ -1061,7 +1168,7 @@ function keydown(e) {
         if (e.key === 'Escape') {
             editor_selection = {};
         } else if (e.key === 'e') {
-            console.log(cs.map); // TODO: output the map
+            console.log(cs.map);
             editor_mode = false;
             cs.camera.r = cs.player.r;
             cs.camera.c = cs.player.c;
@@ -1073,6 +1180,18 @@ function keydown(e) {
             cs.camera.c--;
         } else if (e.key === 'ArrowRight') {
             cs.camera.c++;
+        } else if (e.key === '!') {
+            if (selected_tile !== null) tile_hotkeys[0] = selected_tile;
+        } else if (e.key === '@') {
+            if (selected_tile !== null) tile_hotkeys[1] = selected_tile;
+        } else if (e.key === '#') {
+            if (selected_tile !== null) tile_hotkeys[2] = selected_tile;
+        } else if (e.key === '1') {
+            apply_selected_tile_to_selection(tile_hotkeys[0]);
+        } else if (e.key === '2') {
+            apply_selected_tile_to_selection(tile_hotkeys[1]);
+        } else if (e.key === '3') {
+            apply_selected_tile_to_selection(tile_hotkeys[2]);
         } else {
         }
     }
@@ -1102,4 +1221,3 @@ window.addEventListener('mousemove', mousemove);
 window.addEventListener('keydown', keydown);
 window.addEventListener('keyup', keyup);
 window.addEventListener('resize', resize);
-
