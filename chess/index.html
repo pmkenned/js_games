@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta name ="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Chess</title>
+<style>
+body {
+    margin: 0;
+    overflow: hidden;
+}
+</style>
+    </head>
+
+    <body>
+        <canvas id="myCanvas"></canvas>
+
+        <script>
+"use strict";
+
+const canvas = document.getElementById('myCanvas');
+const ctx = canvas.getContext('2d');
+
+const fixed_dt = 8; // 125 Hz
+const MAX_FRAMETIME = 250;
+
+let sq;
+const nr = 8;
+const nc = 8;
+
+const white_color       = "#f1d8b9";
+const black_color       = "#b48767";
+const b_selected_color  = "#bf7945";
+const w_selected_color  = "#e9b17e";
+const b_move_color      = "#646f40";
+const w_move_color      = "#829769";
+const previous_color    = "#aaa23a";
+const attacked_color    = "#aeb07e";
+
+const EMPTY     =  0;
+const W_KING    =  1;
+const W_QUEEN   =  2;
+const W_ROOK    =  3;
+const W_BISHOP  =  4;
+const W_KNIGHT  =  5;
+const W_PAWN    =  6;
+const B_KING    =  7;
+const B_QUEEN   =  8;
+const B_ROOK    =  9;
+const B_BISHOP  = 10;
+const B_KNIGHT  = 11;
+const B_PAWN    = 12;
+
+const piece_strs = [];
+
+(function() {
+    piece_strs[W_KING  ]  = "\u2654";
+    piece_strs[W_QUEEN ]  = "\u2655";
+    piece_strs[W_ROOK  ]  = "\u2656";
+    piece_strs[W_BISHOP]  = "\u2657";
+    piece_strs[W_KNIGHT]  = "\u2658";
+    piece_strs[W_PAWN  ]  = "\u2659";
+    piece_strs[B_KING  ]  = "\u265a";
+    piece_strs[B_QUEEN ]  = "\u265b";
+    piece_strs[B_ROOK  ]  = "\u265c";
+    piece_strs[B_BISHOP]  = "\u265d";
+    piece_strs[B_KNIGHT]  = "\u265e";
+    piece_strs[B_PAWN  ]  = "\u265f";
+})();
+
+let width;
+let height;
+let pressed;
+let accumulator;
+let frameCount;
+let prevTime;
+
+let cs = {};
+let ss = {};
+
+function saveState() {
+    ss = JSON.parse(JSON.stringify(cs));
+}
+
+function restoreState() {
+    cs = JSON.parse(JSON.stringify(ss));
+}
+
+function reset() {
+    resize();
+    pressed = {};
+    accumulator = 0;
+    frameCount = 0;
+    prevTime = 0;
+
+    cs =  {
+        board: [
+            [   B_ROOK,     B_KNIGHT,   B_BISHOP,   B_QUEEN,    B_KING,     B_BISHOP,   B_KNIGHT,   B_ROOK],
+            [   B_PAWN,     B_PAWN,     B_PAWN,     B_PAWN,     B_PAWN,     B_PAWN,     B_PAWN,     B_PAWN],
+            [   EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY ],
+            [   EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY ],
+            [   EMPTY,      W_PAWN,     EMPTY,      W_ROOK,     EMPTY,      W_PAWN,     EMPTY,      EMPTY ],
+            [   EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY ],
+            [   W_PAWN,     W_PAWN,     W_PAWN,     W_PAWN,     W_PAWN,     W_PAWN,     W_PAWN,     W_PAWN],
+            [   W_ROOK,     W_KNIGHT,   W_BISHOP,   W_QUEEN,    W_KING,     W_BISHOP,   W_KNIGHT,   W_ROOK],
+        ],
+        whites_turn: true,
+        white_on_bottom: true,
+        selected_piece: null,
+    };
+    saveState();
+}
+
+reset();
+
+function px(x, f=0.0) { return Math.round(x) + f; }
+
+function worldToScreen(coord) {
+    return {
+        x: width/2 + coord.x*sq - nc*sq/2,
+        y: height/2 + coord.y*sq - nr*sq/2,
+        w: coord.w * sq,
+        h: coord.h * sq,
+    };
+}
+
+function worldToScreenCircle(circle) {
+    return {
+        x: width/2 + circle.x*sq - nc*sq/2 + sq/2,
+        y: height/2 + circle.y*sq - nr*sq/2 + sq/2,
+        r: circle.r * sq,
+    };
+}
+
+function drawRect(rect)
+{
+    const sr = worldToScreen(rect);
+    ctx.fillRect(px(sr.x), px(sr.y), sr.w, sr.h);
+}
+
+function drawCircle(circle)
+{
+    const sc = worldToScreenCircle(circle);
+    ctx.beginPath();
+    ctx.arc(sc.x, sc.y, sc.r, 0, 2 * Math.PI);
+    ctx.fill();
+}
+
+// TODO: this is wrong
+//function rowColToRankFile(row_col) {
+//    if (cs.white_on_bottom) {
+//        return {rank: row_col.row, file: row_col.col};
+//    } else {
+//        return {rank: nr - row_col.row + 1, file: nc - row_col.col - 1};
+//    }
+//}
+
+// TODO: use rank and file?
+function getPiece(r, c) {
+    if (r < 0 || r >= nr || c < 0 || c >= nc)
+        return null;
+    return cs.white_on_bottom ? cs.board[r][c] : cs.board[nr-r-1][nc-c-1];
+}
+
+function is_white(piece) {
+    return (piece < B_KING);
+}
+
+// TODO: create list of valid moves as a function
+//       of selected piece and current game state
+function get_valid_moves()
+{
+    const rv = [];
+
+    if (cs.selected_piece.piece == W_PAWN) {
+        rv.push({r: cs.selected_piece.r - 2, c: cs.selected_piece.c});
+        rv.push({r: cs.selected_piece.r - 1, c: cs.selected_piece.c});
+    } else if (cs.selected_piece.piece == B_PAWN) {
+        rv.push({r: cs.selected_piece.r + 2, c: cs.selected_piece.c});
+        rv.push({r: cs.selected_piece.r + 1, c: cs.selected_piece.c});
+    } else if (cs.selected_piece.piece == W_ROOK) {
+        for (let r = cs.selected_piece.r-1; r >= 0; r--) {
+            if (cs.board[r][cs.selected_piece.c] != EMPTY)
+                break;
+            rv.push({r: r, c: cs.selected_piece.c});
+        }
+        for (let r = cs.selected_piece.r+1; r < nr; r++) {
+            if (cs.board[r][cs.selected_piece.c] != EMPTY)
+                break;
+            rv.push({r: r, c: cs.selected_piece.c});
+        }
+        for (let c = cs.selected_piece.c-1; c >= 0; c--) {
+            if (cs.board[cs.selected_piece.r][c] != EMPTY)
+                break;
+            rv.push({r: cs.selected_piece.r, c: c});
+        }
+        for (let c = cs.selected_piece.c+1; c < nc; c++) {
+            if (cs.board[cs.selected_piece.r][c] != EMPTY)
+                break;
+            rv.push({r: cs.selected_piece.r, c: c});
+        }
+    }
+    return rv;
+}
+
+function draw() {
+    ctx.clearRect(0, 0, width, height);
+
+    for (let r = 0; r < nr; r++) {
+        for (let c = 0; c < nc; c++) {
+            const on_white = (r+c) % 2 == 0;
+            ctx.fillStyle = on_white ? white_color : black_color;
+            if (cs.selected_piece && (r == cs.selected_piece.r && c == cs.selected_piece.c)) {
+                ctx.fillStyle = on_white ? w_selected_color : b_selected_color;
+            }
+            drawRect({x: c, y: r, w: 1, h: 1});
+        }
+    }
+
+    ctx.font = `${100*sq/100}px Courier New`;
+    ctx.fillStyle = "black";
+    for (let r = 0; r < nr; r++) {
+        for (let c = 0; c < nc; c++) {
+            const piece = getPiece(r, c);
+            if (piece != EMPTY) {
+                ctx.fillText(piece_strs[piece], width/2 + (c-4)*sq, height/2 + (r-3.1)*sq);
+            }
+        }
+    }
+
+    if (cs.selected_piece) {
+        const on_white = (cs.selected_piece.r+cs.selected_piece.c) % 2 == 0;
+        ctx.fillStyle = on_white ? w_move_color : b_move_color;
+        const valid_moves = get_valid_moves();
+        for (const move of valid_moves) {
+            drawCircle({x: move.c, y: move.r, r: 0.15});
+        }
+    }
+}
+
+function handleInput(t, dt) {
+}
+
+function update(t, dt) {
+    // update game state here
+}
+
+function loop(t) {
+    let frameTime = t - prevTime;
+    prevTime = t;
+
+    frameCount++;
+
+    if (frameTime > MAX_FRAMETIME) {
+        console.log(`frameTime > MAX_FRAMETIME : ${frameTime}`);
+        frameTime = MAX_FRAMETIME;
+    }
+
+    accumulator += frameTime;
+
+    while (accumulator >= fixed_dt) {
+        handleInput(t, fixed_dt);
+        update(t, fixed_dt);
+        accumulator -= fixed_dt;
+    }
+
+    draw();
+    window.requestAnimationFrame(loop);
+}
+
+loop(0);
+
+function blur(e) {
+}
+
+function focus(e) {
+}
+
+function resize(e) {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+    const sqh = Math.round(height/(nr+1));
+    const sqw = Math.round(width/(nc+1));
+    sq = Math.min(sqh, sqw);
+}
+
+function keydown(e) {
+    if (e.key === 'Escape') {
+    } else if (e.key === 'f') {
+        cs.white_on_bottom = !cs.white_on_bottom;
+        if (cs.selected_piece) {
+            cs.selected_piece.r = nr - cs.selected_piece.r - 1;
+            cs.selected_piece.c = nc - cs.selected_piece.c - 1;
+        }
+    } else if (e.key === 's') {
+        saveState();
+    } else if (e.key === 'd') {
+        restoreState();
+    } else if (e.key === 'r') {
+        reset();
+    } else {
+        pressed[e.key] = true;
+    }
+}
+
+function keyup(e) {
+    if (e.key === 'Escape') {
+    } else if (e.key === 'r') {
+    } else {
+        pressed[e.key] = false;
+    }
+}
+
+function mousedown(e) {
+    const x = e.clientX - width/2 + sq*4;
+    const y = e.clientY - height/2 + sq*4;
+    const c = Math.floor(x/sq);
+    const r = Math.floor(y/sq);
+    const piece = getPiece(r, c);
+
+    if (cs.selected_piece) {
+
+        const valid_moves = get_valid_moves();
+
+        for (const move of valid_moves) {
+            if (move.r == r && move.c == c) {
+                cs.board[r][c] = cs.selected_piece.piece;
+                cs.board[cs.selected_piece.r][cs.selected_piece.c] = EMPTY;
+                cs.selected_piece = null;
+                return;
+            }
+        }
+        if (r == cs.selected_piece.r && c == cs.selected_piece.c) {
+            cs.selected_piece = null;
+            return;
+        }
+    }
+
+    if (piece && piece != EMPTY) {
+        cs.selected_piece = {r: r, c: c, piece: piece};
+    } else {
+        cs.selected_piece = null;
+    }
+}
+
+function mouseup(e) {
+}
+
+window.addEventListener('blur', blur);
+window.addEventListener('focus', focus);
+window.addEventListener('keydown', keydown);
+window.addEventListener('keyup', keyup);
+window.addEventListener('mousedown', mousedown);
+window.addEventListener('mouseup', mouseup);
+window.addEventListener('resize', resize);
+
+        </script>
+    </body>
+
+</html>
