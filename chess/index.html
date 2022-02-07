@@ -9,15 +9,30 @@ body {
     margin: 0;
     overflow: hidden;
 }
+#promotionDlg {
+    position: absolute;
+    top: 40%;
+}
 </style>
     </head>
 
     <body>
+
+<dialog id="promotionDlg">
+    <p>Choose a piece</p>
+    <button class="promotionBtn" id="rook_btn">Rook</button>
+    <button class="promotionBtn" id="bishop_btn">Bishop</button>
+    <button class="promotionBtn" id="knight_btn">Knight</button>
+    <button class="promotionBtn" id="queen_btn">Queen</button>
+</dialog>
         <canvas id="myCanvas"></canvas>
 
         <script>
 "use strict";
 
+let promotionPiece = {};
+
+const promotionDlg = document.getElementById('promotionDlg');
 const canvas = document.getElementById('myCanvas');
 const ctx = canvas.getContext('2d');
 
@@ -36,6 +51,9 @@ const b_move_color      = "#646f40";
 const w_move_color      = "#829769";
 const previous_color    = "#aaa23a";
 const attacked_color    = "#aeb07e";
+
+const WHITE     =  0;
+const BLACK     =  1;
 
 const EMPTY     =  0;
 const W_KING    =  1;
@@ -70,13 +88,14 @@ const piece_strs = [];
 
 let width;
 let height;
-let pressed;
 let accumulator;
 let frameCount;
 let prevTime;
 
 let cs = {};
 let ss = {};
+
+// TODO: JSON serialization maybe doesn't work as needed for custom objects
 
 function saveState() {
     ss = JSON.parse(JSON.stringify(cs));
@@ -86,24 +105,75 @@ function restoreState() {
     cs = JSON.parse(JSON.stringify(ss));
 }
 
+function Board() {
+
+    this.board = [
+        [   B_ROOK,     B_KNIGHT,   B_BISHOP,   B_QUEEN,    B_KING,     B_BISHOP,   B_KNIGHT,   B_ROOK],
+        [   B_PAWN,     B_PAWN,     B_PAWN,     B_PAWN,     B_PAWN,     B_PAWN,     B_PAWN,     B_PAWN],
+        [   EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY ],
+        [   EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY ],
+        [   EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY ],
+        [   EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY ],
+        [   W_PAWN,     W_PAWN,     W_PAWN,     W_PAWN,     W_PAWN,     W_PAWN,     W_PAWN,     W_PAWN],
+        [   W_ROOK,     W_KNIGHT,   W_BISHOP,   W_QUEEN,    W_KING,     W_BISHOP,   W_KNIGHT,   W_ROOK],
+    ];
+
+    this.getRC = function(r, c) {
+        if (r < 0 || r >= nr || c < 0 || c >= nc) return undefined;
+        return cs.white_on_bottom ? this.board[r][c] : this.board[nr-r-1][nc-c-1];
+    }
+
+    this.setRC = function(r, c, piece) {
+        if (r < 0 || r >= nr || c < 0 || c >= nc) return;
+        if (cs.white_on_bottom) this.board[r][c] = piece;
+        else                    this.board[nr-r-1][nc-c-1] = piece;
+    }
+
+    this.getRF = function(r, f) {
+        if (r < 1 || r > 8 || !f.match(/[a-h]/i)) return undefined;
+        const rc = Board.rankFileToRowCol(r, f);
+        return this.board[rc.r][rc.c];
+    }
+
+    this.setRF = function(r, f, piece) {
+        if (r < 1 || r > 8 || !f.match(/[a-h]/i)) return;
+        const rc = Board.rankFileToRowCol(r, f);
+        this.board[rc.r][rc.c] = piece;
+    }
+
+    return this;
+}
+
+Board.rowToRank = function(r) { return cs.white_on_bottom ? nr - r : r + 1; }
+Board.colToFile = function(c) { return cs.white_on_bottom ? String.fromCharCode(c + "a".charCodeAt(0)) : String.fromCharCode("h".charCodeAt(0) - c); }
+Board.rankToRow = function(rank) { return cs.white_on_bottom ? nr - rank : rank - 1; }
+Board.fileToCol = function(file) { return cs.white_on_bottom ? file.toLowerCase().charCodeAt(0) - "a".charCodeAt(0) : "h".charCodeAt(0) - file.toLowerCase().charCodeAt(0); }
+
+Board.rowColToRankFile = function(r, c) {
+    return {rank: Board.rowToRank(r), file: Board.colToFile(c)};
+}
+
+Board.rankFileToRowCol = function(rank, file) {
+    return {r: Board.rankToRow(rank), c: Board.fileToCol(file)};
+}
+
+document.querySelectorAll('.promotionBtn').forEach(btn => btn.onclick = () => {
+    promotionDlg.removeAttribute('open');
+    const white = is_white(promotionPiece.piece);
+    if      (btn.id == 'rook_btn')      cs.board.setRF(promotionPiece.rank, promotionPiece.file, white ? W_ROOK : B_ROOK);
+    else if (btn.id == 'bishop_btn')    cs.board.setRF(promotionPiece.rank, promotionPiece.file, white ? W_BISHOP : B_BISHOP);
+    else if (btn.id == 'knight_btn')    cs.board.setRF(promotionPiece.rank, promotionPiece.file, white ? W_KNIGHT : B_KNIGHT);
+    else if (btn.id == 'queen_btn')     cs.board.setRF(promotionPiece.rank, promotionPiece.file, white ? W_QUEEN : B_QUEEN);
+});
+
 function reset() {
     resize();
-    pressed = {};
     accumulator = 0;
     frameCount = 0;
     prevTime = 0;
 
     cs =  {
-        board: [
-            [   B_ROOK,     B_KNIGHT,   B_BISHOP,   B_QUEEN,    B_KING,     B_BISHOP,   B_KNIGHT,   B_ROOK],
-            [   B_PAWN,     B_PAWN,     B_PAWN,     B_PAWN,     B_PAWN,     B_PAWN,     B_PAWN,     B_PAWN],
-            [   EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY ],
-            [   EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY ],
-            [   EMPTY,      W_PAWN,     EMPTY,      W_ROOK,     EMPTY,      W_PAWN,     EMPTY,      EMPTY ],
-            [   EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY,      EMPTY ],
-            [   W_PAWN,     W_PAWN,     W_PAWN,     W_PAWN,     W_PAWN,     W_PAWN,     W_PAWN,     W_PAWN],
-            [   W_ROOK,     W_KNIGHT,   W_BISHOP,   W_QUEEN,    W_KING,     W_BISHOP,   W_KNIGHT,   W_ROOK],
-        ],
+        board: new Board(),
         whites_turn: true,
         white_on_bottom: true,
         selected_piece: null,
@@ -146,66 +216,134 @@ function drawCircle(circle)
     ctx.fill();
 }
 
-// TODO: this is wrong
-//function rowColToRankFile(row_col) {
-//    if (cs.white_on_bottom) {
-//        return {rank: row_col.row, file: row_col.col};
-//    } else {
-//        return {rank: nr - row_col.row + 1, file: nc - row_col.col - 1};
-//    }
-//}
+function isOnBoard(r, c) { return r >= 0 && r < nr && c >= 0 && c < nc; }
 
-// TODO: use rank and file?
-function getPiece(r, c) {
-    if (r < 0 || r >= nr || c < 0 || c >= nc)
-        return null;
-    return cs.white_on_bottom ? cs.board[r][c] : cs.board[nr-r-1][nc-c-1];
+function is_white(piece) { return (piece != EMPTY) && (piece < B_KING); }
+function is_black(piece) { return (piece != EMPTY) && (piece >= B_KING); }
+function get_color(piece) { return is_white(piece) ? WHITE : BLACK; }
+function same_color(a, b) { return (is_white(a) && is_white(b)) || (is_black(a) && is_black(b)); }
+function diff_color(a, b) { return (is_white(a) && is_black(b)) || (is_black(a) && is_white(b)); }
+
+function nextFile(f) {
+    f = f.toLowerCase();
+    if      (f == 'a') return 'b';
+    else if (f == 'b') return 'c';
+    else if (f == 'c') return 'd';
+    else if (f == 'd') return 'e';
+    else if (f == 'e') return 'f';
+    else if (f == 'f') return 'g';
+    else if (f == 'g') return 'h';
+    else if (f == 'h') return '';
 }
 
-function is_white(piece) {
-    return (piece < B_KING);
+function prevFile(f) {
+    f = f.toLowerCase();
+    if      (f == 'a') return '';
+    else if (f == 'b') return 'a';
+    else if (f == 'c') return 'b';
+    else if (f == 'd') return 'c';
+    else if (f == 'e') return 'd';
+    else if (f == 'f') return 'e';
+    else if (f == 'g') return 'f';
+    else if (f == 'h') return 'g';
 }
 
-// TODO: create list of valid moves as a function
-//       of selected piece and current game state
 function get_valid_moves()
 {
+    const sp = cs.selected_piece;
+
+    function addMove(r, c) {
+        if (!isOnBoard(r, c)) return false;
+        const piece = cs.board.getRC(r, c);
+        if (same_color(piece, cs.selected_piece.piece)) return true;
+        rv.push({rank: Board.rowToRank(r), file: Board.colToFile(c)});
+        if (diff_color(piece, cs.selected_piece.piece)) return true;
+        return false;
+    }
+
     const rv = [];
 
-    if (cs.selected_piece.piece == W_PAWN) {
-        rv.push({r: cs.selected_piece.r - 2, c: cs.selected_piece.c});
-        rv.push({r: cs.selected_piece.r - 1, c: cs.selected_piece.c});
-    } else if (cs.selected_piece.piece == B_PAWN) {
-        rv.push({r: cs.selected_piece.r + 2, c: cs.selected_piece.c});
-        rv.push({r: cs.selected_piece.r + 1, c: cs.selected_piece.c});
-    } else if (cs.selected_piece.piece == W_ROOK) {
-        for (let r = cs.selected_piece.r-1; r >= 0; r--) {
-            if (cs.board[r][cs.selected_piece.c] != EMPTY)
-                break;
-            rv.push({r: r, c: cs.selected_piece.c});
+    // TODO:
+    // - check
+    // - castling
+    // - en passant
+
+    if (sp.piece == W_PAWN || sp.piece == B_PAWN) {
+        const white = is_white(sp.piece)
+        const dir = white ? 1 : -1;
+        const starting_rank = white ? 2 : 7;
+        if (cs.board.getRF(sp.rank + dir, sp.file) == EMPTY) {
+            rv.push({rank: sp.rank + dir, file: sp.file});
+            if (sp.rank == starting_rank) {
+                if (cs.board.getRF(sp.rank + 2*dir, sp.file) == EMPTY)
+                    rv.push({rank: sp.rank + 2*dir, file: sp.file});
+            }
         }
-        for (let r = cs.selected_piece.r+1; r < nr; r++) {
-            if (cs.board[r][cs.selected_piece.c] != EMPTY)
-                break;
-            rv.push({r: r, c: cs.selected_piece.c});
-        }
-        for (let c = cs.selected_piece.c-1; c >= 0; c--) {
-            if (cs.board[cs.selected_piece.r][c] != EMPTY)
-                break;
-            rv.push({r: cs.selected_piece.r, c: c});
-        }
-        for (let c = cs.selected_piece.c+1; c < nc; c++) {
-            if (cs.board[cs.selected_piece.r][c] != EMPTY)
-                break;
-            rv.push({r: cs.selected_piece.r, c: c});
-        }
+        let piece;
+        piece = EMPTY;
+        if (sp.file != 'h')
+            piece = cs.board.getRF(sp.rank + dir, nextFile(sp.file))
+        if (piece != EMPTY && diff_color(sp.piece, piece))
+            rv.push({rank: sp.rank + dir, file: nextFile(sp.file)});
+        piece = EMPTY;
+        if (sp.file != 'a')
+            piece = cs.board.getRF(sp.rank + dir, prevFile(sp.file))
+        if (piece != EMPTY && diff_color(sp.piece, piece))
+            rv.push({rank: sp.rank + dir, file: prevFile(sp.file)});
+    } else if (sp.piece == W_ROOK || sp.piece == B_ROOK) {
+        let r, c;
+        c = sp.c;
+        for (r = sp.r-1; r >= 0; r--) { if (addMove(r, c)) break; }
+        for (r = sp.r+1; r < nr; r++) { if (addMove(r, c)) break; }
+        r = sp.r;
+        for (c = sp.c-1; c >= 0; c--) { if (addMove(r, c)) break; }
+        for (c = sp.c+1; c < nc; c++) { if (addMove(r, c)) break; }
+    } else if (sp.piece == W_BISHOP || sp.piece == B_BISHOP) {
+        let r, c;
+        for (r = sp.r-1, c = sp.c-1; r >= 0 && c >= 0; r--, c--) { if (addMove(r, c)) break; }
+        for (r = sp.r-1, c = sp.c+1; r >= 0 && c < nc; r--, c++) { if (addMove(r, c)) break; }
+        for (r = sp.r+1, c = sp.c-1; r < nr && c >= 0; r++, c--) { if (addMove(r, c)) break; }
+        for (r = sp.r+1, c = sp.c+1; r < nr && c < nc; r++, c++) { if (addMove(r, c)) break; }
+    } else if (sp.piece == W_QUEEN || sp.piece == B_QUEEN) {
+        let r, c;
+        // vertical and horizontal
+        c = sp.c;
+        for (r = sp.r-1; r >= 0; r--) { if (addMove(r, c)) break; }
+        for (r = sp.r+1; r < nr; r++) { if (addMove(r, c)) break; }
+        r = sp.r;
+        for (c = sp.c-1; c >= 0; c--) { if (addMove(r, c)) break; }
+        for (c = sp.c+1; c < nc; c++) { if (addMove(r, c)) break; }
+        // diagonal
+        for (r = sp.r-1, c = sp.c-1; r >= 0 && c >= 0; r--, c--) { if (addMove(r, c)) break; }
+        for (r = sp.r-1, c = sp.c+1; r >= 0 && c < nc; r--, c++) { if (addMove(r, c)) break; }
+        for (r = sp.r+1, c = sp.c-1; r < nr && c >= 0; r++, c--) { if (addMove(r, c)) break; }
+        for (r = sp.r+1, c = sp.c+1; r < nr && c < nc; r++, c++) { if (addMove(r, c)) break; }
+    } else if (sp.piece == W_KNIGHT || sp.piece == B_KNIGHT) {
+        addMove(sp.r-2, sp.c-1);
+        addMove(sp.r-2, sp.c+1);
+        addMove(sp.r-1, sp.c+2);
+        addMove(sp.r+1, sp.c+2);
+        addMove(sp.r+2, sp.c+1);
+        addMove(sp.r+2, sp.c-1);
+        addMove(sp.r+1, sp.c-2);
+        addMove(sp.r-1, sp.c-2);
+    } else if (sp.piece == W_KING || sp.piece == B_KING) {
+        addMove(sp.r-1, sp.c-1);
+        addMove(sp.r-1, sp.c  );
+        addMove(sp.r-1, sp.c+1);
+        addMove(sp.r  , sp.c-1);
+        addMove(sp.r  , sp.c+1);
+        addMove(sp.r+1, sp.c-1);
+        addMove(sp.r+1, sp.c  );
+        addMove(sp.r+1, sp.c+1);
     }
     return rv;
 }
 
-function draw() {
+function draw(t) {
     ctx.clearRect(0, 0, width, height);
 
+    // draw the board
     for (let r = 0; r < nr; r++) {
         for (let c = 0; c < nc; c++) {
             const on_white = (r+c) % 2 == 0;
@@ -217,58 +355,33 @@ function draw() {
         }
     }
 
+    // draw the pieces
     ctx.font = `${100*sq/100}px Courier New`;
     ctx.fillStyle = "black";
     for (let r = 0; r < nr; r++) {
         for (let c = 0; c < nc; c++) {
-            const piece = getPiece(r, c);
+            const piece = cs.board.getRC(r, c);
             if (piece != EMPTY) {
                 ctx.fillText(piece_strs[piece], width/2 + (c-4)*sq, height/2 + (r-3.1)*sq);
             }
         }
     }
 
+    // if a piece is selected, show the valid moves
     if (cs.selected_piece) {
         const on_white = (cs.selected_piece.r+cs.selected_piece.c) % 2 == 0;
         ctx.fillStyle = on_white ? w_move_color : b_move_color;
         const valid_moves = get_valid_moves();
+        // TODO: draw attacked pieces differently
         for (const move of valid_moves) {
-            drawCircle({x: move.c, y: move.r, r: 0.15});
+            drawCircle({x: Board.fileToCol(move.file), y: Board.rankToRow(move.rank), r: 0.15});
         }
     }
+
+    window.requestAnimationFrame(draw);
 }
 
-function handleInput(t, dt) {
-}
-
-function update(t, dt) {
-    // update game state here
-}
-
-function loop(t) {
-    let frameTime = t - prevTime;
-    prevTime = t;
-
-    frameCount++;
-
-    if (frameTime > MAX_FRAMETIME) {
-        console.log(`frameTime > MAX_FRAMETIME : ${frameTime}`);
-        frameTime = MAX_FRAMETIME;
-    }
-
-    accumulator += frameTime;
-
-    while (accumulator >= fixed_dt) {
-        handleInput(t, fixed_dt);
-        update(t, fixed_dt);
-        accumulator -= fixed_dt;
-    }
-
-    draw();
-    window.requestAnimationFrame(loop);
-}
-
-loop(0);
+draw(0);
 
 function blur(e) {
 }
@@ -286,6 +399,7 @@ function resize(e) {
 
 function keydown(e) {
     if (e.key === 'Escape') {
+        cs.selected_piece = null;
     } else if (e.key === 'f') {
         cs.white_on_bottom = !cs.white_on_bottom;
         if (cs.selected_piece) {
@@ -299,45 +413,61 @@ function keydown(e) {
     } else if (e.key === 'r') {
         reset();
     } else {
-        pressed[e.key] = true;
     }
 }
 
 function keyup(e) {
-    if (e.key === 'Escape') {
-    } else if (e.key === 'r') {
-    } else {
-        pressed[e.key] = false;
-    }
 }
 
 function mousedown(e) {
+
+    if (document.getElementById('promotionDlg').attributes.open)
+        return;
+
     const x = e.clientX - width/2 + sq*4;
     const y = e.clientY - height/2 + sq*4;
     const c = Math.floor(x/sq);
     const r = Math.floor(y/sq);
-    const piece = getPiece(r, c);
+    const on_board = isOnBoard(r, c);
+    const rank = on_board ? Board.rowToRank(r) : null;
+    const file = on_board ? Board.colToFile(c) : null;
+    const clicked_piece = on_board ? cs.board.getRC(r, c) : null;
 
     if (cs.selected_piece) {
 
-        const valid_moves = get_valid_moves();
-
-        for (const move of valid_moves) {
-            if (move.r == r && move.c == c) {
-                cs.board[r][c] = cs.selected_piece.piece;
-                cs.board[cs.selected_piece.r][cs.selected_piece.c] = EMPTY;
-                cs.selected_piece = null;
-                return;
-            }
-        }
+        // clicking on the same piece deselects the piece
         if (r == cs.selected_piece.r && c == cs.selected_piece.c) {
             cs.selected_piece = null;
             return;
         }
+
+        const valid_moves = get_valid_moves();
+
+        // check to see if any of the valid moves was chosen
+        for (const move of valid_moves) {
+            if (move.rank == rank && move.file == file) {
+                // move the piece
+                if ((cs.selected_piece.piece == W_PAWN && move.rank == 8) ||
+                    (cs.selected_piece.piece == B_PAWN && move.rank == 1)) {
+                    promotionDlg.setAttribute('open', '');
+                    promotionPiece.piece = cs.selected_piece.piece;
+                    promotionPiece.rank = rank;
+                    promotionPiece.file = file;
+                }
+                // TODO: keep track of whether King and/or rooks have moved for castling
+                cs.board.setRF(rank, file, cs.selected_piece.piece);
+                cs.board.setRF(cs.selected_piece.rank, cs.selected_piece.file, EMPTY);
+                cs.selected_piece = null;
+                cs.whites_turn = !cs.whites_turn;
+                return;
+            }
+        }
     }
 
-    if (piece && piece != EMPTY) {
-        cs.selected_piece = {r: r, c: c, piece: piece};
+    // a (different) piece was selected, else an empty square was clicked on
+    if (clicked_piece && ((is_white(clicked_piece) && cs.whites_turn) || (!is_white(clicked_piece) && !cs.whites_turn))) {
+        const rf = Board.rowColToRankFile(r, c);
+        cs.selected_piece = {r: r, c: c, rank: rf.rank, file: rf.file, piece: clicked_piece, color: get_color(clicked_piece)};
     } else {
         cs.selected_piece = null;
     }
