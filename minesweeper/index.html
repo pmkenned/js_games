@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta name ="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Minesweeper</title>
+<style>
+body {
+    margin: 0;
+    overflow: hidden;
+}
+</style>
+    </head>
+
+    <body>
+        <canvas id="myCanvas"></canvas>
+
+        <script>
+
+// TODO:
+// * Display timer
+// * Display mines remaining
+// * Enforce game over
+// * Choose difficulty
+// * Choose board size
+
+const canvas = document.getElementById('myCanvas');
+const ctx = canvas.getContext('2d');
+
+const fixed_dt = 8; // 125 Hz
+const MAX_FRAMETIME = 250;
+
+const ZOOM_RATE = 1.01;
+
+let width;
+let height;
+let paused;
+let gameOver;
+let prevTime;
+
+let cs = {};
+
+let sq;
+const NROWS = 20;
+const NCOLS = 30;
+
+function reset() {
+    resize();
+    paused = false;
+    gameOver = false;
+    prevTime = 0;
+
+    cs =  {};
+    cs.mines = [];
+    cs.flags = [];
+    cs.revealed = [];
+    for (let r = 0; r < NROWS; r++) {
+        cs.mines.push([]);
+        cs.flags.push([]);
+        cs.revealed.push([]);
+        for (let c = 0; c < NCOLS; c++) {
+            const x = Math.floor(Math.random()*8);
+            cs.mines[r].push(x === 1 ? true : false);
+            cs.flags[r].push(false);
+            cs.revealed[r].push(false);
+        }
+    }
+    cs.nmines = [];
+    for (let r = 0; r < NROWS; r++) {
+        cs.nmines.push([]);
+        for (let c = 0; c < NCOLS; c++) {
+            cs.nmines[r].push(0);
+            for (let i = -1; i <= 1; i++) {
+                for (let j = -1; j <= 1; j++) {
+                    if ((i == 0 && j == 0) || r+i < 0 || r+i >= NROWS || c+j < 0 || c+j >= NCOLS) {
+                        continue;
+                    }
+                    cs.nmines[r][c] += cs.mines[r+i][c+j] ? 1 : 0;
+                }
+            }
+        }
+    }
+
+}
+
+reset();
+
+function px(x, f=0.0) { return Math.round(x) + f; }
+
+function screenToWorld(coord) {
+    return {
+        x: (coord.x - width/2 + NCOLS*sq/2)/sq,
+        y: (coord.y - height/2 + NROWS*sq/2)/sq,
+        w: coord.w / sq,
+        h: coord.h / sq,
+    };
+}
+
+function worldToScreen(coord) {
+    return {
+        x: width/2 + coord.x*sq - NCOLS*sq/2,
+        y: height/2 + coord.y*sq - NROWS*sq/2,
+        w: coord.w * sq,
+        h: coord.h * sq,
+    };
+}
+
+function drawRect(rect)
+{
+    const sr = worldToScreen(rect);
+    ctx.fillRect(px(sr.x), px(sr.y), sr.w, sr.h);
+}
+
+function drawText(text, rect)
+{
+    const sr = worldToScreen(rect);
+    ctx.fillText(text, px(sr.x + sq/2), px(sr.y + sq/2));
+}
+
+function draw() {
+    ctx.clearRect(0, 0, width, height);
+
+    for (let r = 0; r < cs.revealed.length; r++) {
+        for (let c = 0; c < cs.revealed[r].length; c++) {
+            if (cs.revealed[r][c] && cs.mines[r][c]) {
+                ctx.fillStyle = "red";
+            } else if (cs.revealed[r][c]) {
+                ctx.fillStyle = "gray";
+            } else if (cs.flags[r][c]) {
+                ctx.fillStyle = "purple";
+            } else {
+                ctx.fillStyle = "blue";
+            }
+            drawRect({x: c, y: r, w: 0.95, h: 0.95});
+        }
+    }
+
+    for (let r = 0; r < cs.revealed.length; r++) {
+        for (let c = 0; c < cs.revealed[r].length; c++) {
+            if (cs.revealed[r][c]) {
+                const text = cs.mines[r][c] ? "m" : `${cs.nmines[r][c]}`;
+                ctx.fillStyle = "black";
+                ctx.font = `${sq*0.5}px Calibri`;
+                if (text !== "0") {
+                    drawText(`${text}`, {x: c, y: r, w: 1, h: 1});
+                }
+            }
+        }
+    }
+
+    if (paused) {
+        ctx.font = `60px Calibri`;
+        ctx.lineWidth = 2;
+        ctx.fillStyle = "white";
+        ctx.strokeStyle = "black";
+        ctx.fillText("PAUSED", width/2 - 80, height/2);
+        ctx.strokeText("PAUSED", width/2 - 80, height/2);
+    }
+}
+
+function loop(t) {
+    let frameTime = t - prevTime;
+    prevTime = t;
+
+    if (!paused) {
+        if (frameTime > MAX_FRAMETIME) {
+            console.log(`frameTime > MAX_FRAMETIME : ${frameTime}`);
+            frameTime = MAX_FRAMETIME;
+        }
+    }
+    draw();
+    window.requestAnimationFrame(loop);
+}
+
+loop(0);
+
+function blur(e) {
+    paused = true;
+}
+
+function focus(e) {
+}
+
+function resize(e) {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+    const sqh = Math.round(height/(NROWS+1));
+    const sqw = Math.round(width/(NCOLS+1));
+    sq = Math.min(sqh, sqw);
+}
+
+function keydown(e) {
+    if (e.key === 'Escape') {
+        paused = !paused;
+    } else if (e.key === 'r') {
+        reset();
+    }
+}
+
+document.oncontextmenu = (e) => e.preventDefault();
+
+function revealNeighbors(r, c) {
+    for (let i = -1; i <= 1; i++) {
+        for (let j = -1; j <= 1; j++) {
+            if ((i == 0 && j == 0) || r+i < 0 || r+i >= NROWS || c+j < 0 || c+j >= NCOLS) {
+                continue;
+            }
+            const doRecursion = (cs.nmines[r+i][c+j] == 0) && !cs.revealed[r+i][c+j];
+            cs.revealed[r+i][c+j] = true;
+            if (doRecursion) {
+                revealNeighbors(r+i, c+j);
+            }
+        }
+    }
+}
+
+function mousedown(e) {
+    if (paused) {
+        return;
+    }
+    e.preventDefault();
+    const wc = screenToWorld({x: e.clientX, y: e.clientY, w: 1, h: 1});
+    const r = Math.floor(wc.y);
+    const c = Math.floor(wc.x);
+    if (r < 0 || r >= NROWS || c < 0 || c >= NCOLS) {
+        return;
+    }
+    if (e.button == 0) {
+        cs.revealed[r][c] = true;
+        if (cs.mines[r][c]) {
+            gameOver = true;
+            return;
+        }
+        if (cs.nmines[r][c] == 0) {
+            revealNeighbors(r, c);
+        }
+    } else if (e.button == 2) {
+        cs.flags[r][c] = !cs.flags[r][c];
+    }
+}
+
+window.addEventListener('blur', blur);
+window.addEventListener('focus', focus);
+window.addEventListener('keydown', keydown);
+window.addEventListener('resize', resize);
+window.addEventListener('mousedown', mousedown);
+
+        </script>
+    </body>
+
+</html>
