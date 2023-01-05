@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta name ="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Little Fish</title>
+<style>
+body {
+    margin: 0;
+    overflow: hidden;
+}
+</style>
+    </head>
+
+    <body>
+        <canvas id="myCanvas"></canvas>
+
+        <script>
+// TODO:
+// * draw fish
+// * score
+// * game over
+// * pretty graphics
+
+const canvas = document.getElementById('myCanvas');
+const ctx = canvas.getContext('2d');
+
+const fixed_dt = 8; // 125 Hz
+const MAX_FRAMETIME = 250;
+
+const MAX_XS = 1.5;
+const MAX_YS = 1.5;
+const MAX_FISH_XS = 0.5*MAX_XS;
+const MAX_ACTIVE_FISH = 10;
+
+let width;
+let height;
+let pressed;
+let paused;
+let gameOver;
+let advanceFrame;
+let simulateInputs;
+let accumulator;
+let frameCount;
+let simRate;
+let prevTime;
+
+let cs = {};
+let ss = {};
+
+let inputsToSim = {
+    // 160 : [ { key: 'ArrowDown',   mode: 'down'   }, ],
+};
+
+function saveState() {
+    ss = JSON.parse(JSON.stringify(cs));
+}
+
+function restoreState() {
+    cs = JSON.parse(JSON.stringify(ss));
+}
+
+function reset() {
+    resize();
+    pressed = {};
+    paused = false;
+    gameOver = false;
+    advanceFrame = false;
+    simulateInputs = false;
+    accumulator = 0;
+    frameCount = 0;
+    simRate = 1.0;
+    prevTime = 0;
+
+    cs =  {
+        player: {
+            x: 0.5,
+            xs: 0,
+            y: 0.5,
+            ys: 0,
+            size: 0.01
+        },
+        fish: []
+    };
+    saveState();
+}
+
+reset();
+
+function px(x, f=0.0) { return Math.round(x) + f; }
+
+function drawRect(sr)
+{
+    ctx.fillRect(px(width*(sr.x - sr.w/2)), px(height*(sr.y - sr.h/2)), width*sr.w, height*sr.h);
+}
+
+function draw() {
+    ctx.clearRect(0, 0, width, height);
+
+    // draw other fish
+    for (const fish of cs.fish) {
+        if (fish.size > cs.player.size)
+            ctx.fillStyle = "red";
+        else
+            ctx.fillStyle = "green";
+        if (fish.active) {
+            drawRect({x: fish.x, y: fish.y, w: fish.size, h: fish.size});
+        }
+    }
+
+    // draw player
+    ctx.fillStyle = "blue";
+    drawRect({x: cs.player.x, y: cs.player.y, w: cs.player.size, h: cs.player.size});
+
+    ctx.fillStyle = "hsla(240, 80%, 50%, 0.5)";
+    ctx.fillRect(0, 0, width, height);
+
+    if (paused || gameOver) {
+        ctx.font = `60px Calibri`;
+        ctx.lineWidth = 2;
+        ctx.fillStyle = "white";
+        ctx.strokeStyle = "black";
+        if (paused) {
+            ctx.fillText("PAUSED", width/2 - 80, height/2);
+            ctx.strokeText("PAUSED", width/2 - 80, height/2);
+        } else {
+            ctx.fillText("GAME OVER", width/2 - 80, height/2);
+            ctx.strokeText("GAME OVER", width/2 - 80, height/2);
+        }
+    }
+}
+
+function handleInput(t, dt) {
+
+    if (pressed.ArrowLeft)     {
+        if (cs.player.xs > -MAX_XS)
+            cs.player.xs -= 0.0002*dt;
+    }
+    if (pressed.ArrowRight)    {
+        if (cs.player.xs < MAX_XS)
+            cs.player.xs += 0.0002*dt;
+    }
+    if (pressed.ArrowUp)       {
+        if (cs.player.ys > -MAX_YS)
+            cs.player.ys -= 0.0002*dt;
+    }
+    if (pressed.ArrowDown)     {
+        if (cs.player.ys < MAX_YS)
+            cs.player.ys += 0.0002*dt;
+    }
+}
+
+function leftSide(fish) {
+    return fish.x - fish.size/2;
+}
+
+function rightSide(fish) {
+    return fish.x + fish.size/2;
+}
+
+function topSide(fish) {
+    return fish.y - fish.size/2;
+}
+
+function bottomSide(fish) {
+    return fish.y + fish.size/2;
+}
+
+function between(x, a, b) {
+    return (x >= a) && (x <= b);
+}
+
+function update(t, dt) {
+
+    // randomly create new fish
+
+    cs.fish = cs.fish.filter(fish => fish.active);
+
+    if ((cs.fish.length < MAX_ACTIVE_FISH) && (Math.random() < 0.002)) {
+        const fish_x = (Math.random() < 0.5) ? -0.1 : 1.1;
+        const fish_xs = ((fish_x < 0) ? 1 : -1)*MAX_FISH_XS*(Math.random()*0.3+0.7);
+        cs.fish.push({
+            x: fish_x,
+            y: Math.random(),
+            xs: fish_xs,
+            ys: 0,
+            size: Math.random()*0.05 + 0.005,
+            active: true
+        });
+    }
+
+    // update other fish
+
+    for (const fish of cs.fish) {
+        fish.x += 0.001*fish.xs;
+        if (fish.x > 2 || fish.x < -1)
+            fish.active = false;
+    }
+
+    // detect collisions
+
+    for (const fish of cs.fish) {
+        if (!fish.active)
+            continue;
+        const fish1 = cs.player;
+        const fish2 = fish;
+        if ((leftSide(fish1) < rightSide(fish2)) && (rightSide(fish1) > leftSide(fish2)) &&
+            (topSide(fish1) < bottomSide(fish2)) && (bottomSide(fish1) > topSide(fish2))) {
+            if (cs.player.size > fish.size) {
+                cs.player.size += 0.5*fish.size;
+                fish.active = false;
+            } else {
+                gameOver = true;
+            }
+        }
+    }
+
+    // update player position and speed
+
+    cs.player.x += 0.001*dt*cs.player.xs;
+    cs.player.y += 0.001*dt*cs.player.ys;
+
+    // clamp position
+
+    if (cs.player.x < 0) {
+        cs.player.x = 0;
+        cs.player.xs = 0;
+    }
+    if (cs.player.x > 1) {
+        cs.player.x = 1;
+        cs.player.xs = 0;
+    }
+    if (cs.player.y < 0) {
+        cs.player.y = 0;
+        cs.player.ys = 0;
+    }
+    if (cs.player.y > 1) {
+        cs.player.y = 1;
+        cs.player.ys = 0;
+    }
+
+    // dampen
+
+    cs.player.xs *= 0.99;
+    cs.player.ys *= 0.99;
+}
+
+function simulateInputOnFrame(n, verbose=true) {
+    if (n in inputsToSim) {
+        for (let input of inputsToSim[n]) {
+            if (verbose) { console.log(`input '${input.key}' ${input.mode} on frame ${n}`); }
+            let e = {key: input.key};
+            if (input.mode == 'down')   { keydown(e); }
+            else                        { keyup(e); }
+        }
+    }
+}
+
+function loop(t) {
+    let frameTime = t - prevTime;
+    prevTime = t;
+
+    if (!(paused || gameOver) || advanceFrame) {
+        frameCount++;
+
+        if (frameTime > MAX_FRAMETIME) {
+            console.log(`frameTime > MAX_FRAMETIME : ${frameTime}`);
+            frameTime = MAX_FRAMETIME;
+        }
+
+        accumulator += frameTime * simRate;
+
+        while (accumulator >= fixed_dt) {
+            if (simulateInputs)
+                simulateInputOnFrame(frameCount);
+            handleInput(t, fixed_dt);
+            update(t, fixed_dt);
+            accumulator -= fixed_dt;
+        }
+        advanceFrame = false;
+    }
+    draw();
+    window.requestAnimationFrame(loop);
+}
+
+loop(0);
+
+function blur(e) {
+    paused = true;
+}
+
+function focus(e) {
+}
+
+function resize(e) {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+}
+
+function keydown(e) {
+    if (e.key === 'Escape') {
+        paused = !paused;
+    } else if (e.key === 's') {
+        saveState();
+    } else if (e.key === 'd') {
+        restoreState();
+    } else if (e.key === ',' || e.key === '.') {
+        if (e.key === ',')
+            simRate /= 2;
+        else if (e.key === '.')
+            simRate *= 2;
+        console.log(`simRate: ${simRate}`);
+    } else if (e.key === '`') {
+        advanceFrame = true;
+    } else if (e.key === 'r') {
+        reset();
+    } else {
+        pressed[e.key] = true;
+    }
+}
+
+function keyup(e) {
+    if (e.key === 'Escape') {
+    } else if (e.key === 'r') {
+    } else {
+        pressed[e.key] = false;
+    }
+}
+
+window.addEventListener('blur', blur);
+window.addEventListener('focus', focus);
+window.addEventListener('keydown', keydown);
+window.addEventListener('keyup', keyup);
+window.addEventListener('resize', resize);
+
+        </script>
+    </body>
+
+</html>
