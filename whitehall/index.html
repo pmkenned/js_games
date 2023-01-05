@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta name ="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Whitehall</title>
+<style>
+body {
+    margin: 0;
+    overflow: hidden;
+}
+</style>
+    </head>
+
+    <body>
+        <canvas id="myCanvas"></canvas>
+
+        <script src="graph.js"></script>
+        <script>
+// TODO: reorder nodes feature
+// TODO: neighbors array should be Set()
+
+const detectiveColors = [
+    "hsl(0,     80%, 60%)",
+    "hsl(60,    80%, 60%)",
+    "hsl(240,   80%, 60%)",
+];
+
+const actionStack = [];
+const redoStack = [];
+
+const errorNodes = new Set();
+
+const canvas = document.getElementById('myCanvas');
+const ctx = canvas.getContext('2d');
+
+let scaleFactor = 80; // TODO: based on window dimensions
+
+const fixed_dt = 8; // 125 Hz
+const MAX_FRAMETIME = 250;
+
+let clickedNodeIndex = null;
+let clickedNodeOriginalPos;
+let rightClickedNodeIndex = null;
+let mouseX = 0;
+let mouseY = 0;
+
+let width;
+let height;
+let pressed;
+let advanceFrame;
+let accumulator;
+let simRate;
+let prevTime;
+
+let cs = {};
+let ss = {};
+
+let inputsToSim = {
+    // 160 : [ { key: 'ArrowDown',   mode: 'down'   }, ],
+};
+
+function saveState() {
+    ss = JSON.parse(JSON.stringify(cs));
+}
+
+function restoreState() {
+    cs = JSON.parse(JSON.stringify(ss));
+}
+
+function makeGraphConsistent() {
+    // if A->B then B->A
+    for (const [nodeIndex, node] of graph.entries()) {
+        for (const neighborIndex of node.neighbors) {
+            const neighborNode = graph[neighborIndex];
+            if (!neighborNode.neighbors.includes(nodeIndex)) {
+                neighborNode.neighbors.push(nodeIndex);
+            }
+        }
+    }
+}
+
+function validateGraph() {
+
+    errorNodes.clear();
+
+    let returnValue = true;
+
+    // if A->B then B->A
+    for (const [nodeIndex, node] of graph.entries()) {
+        for (const neighborIndex of node.neighbors) {
+            const neighborNode = graph[neighborIndex];
+            if (!neighborNode.neighbors.includes(nodeIndex)) {
+                console.error(`${nodeIndex}->${neighborIndex} but not ${neighborIndex}->${nodeIndex}`);
+                errorNodes.add(nodeIndex);
+                errorNodes.add(neighborIndex);
+                returnValue = false;
+            }
+        }
+    }
+
+    // no A->A
+    for (const [nodeIndex, node] of graph.entries()) {
+        if (node.neighbors.includes(nodeIndex)) {
+            console.error(`${nodeIndex}->${nodeIndex}`);
+            errorNodes.add(nodeIndex);
+            returnValue = false;
+        }
+    }
+
+    // no Jack->Jack
+    for (const [nodeIndex, node] of graph.entries()) {
+        if (node.type != 'j')
+            continue;
+        for (const neighborIndex of node.neighbors) {
+            const neighborNode = graph[neighborIndex];
+            if (neighborNode.type == 'j') {
+                console.error(`Jack->Jack: ${nodeIndex}->${neighborIndex}`);
+                errorNodes.add(nodeIndex);
+                errorNodes.add(neighborIndex);
+                returnValue = false;
+            }
+        }
+    }
+
+    // no repeated neighbors
+    for (const [nodeIndex, node] of graph.entries()) {
+        if (hasDuplicates(node.neighbors)) {
+            console.error(`node ${nodeIndex} has duplicate neighbors: ${node.neighbors}`);
+            errorNodes.add(nodeIndex);
+            returnValue = false;
+        }
+    }
+
+    // no nodes with zero neighbors
+    for (const [nodeIndex, node] of graph.entries()) {
+        if (nodeIndex == 0)
+            continue;
+        if (node.neighbors.length == 0) {
+            console.error(`${nodeIndex} has zero neighbors`);
+            errorNodes.add(nodeIndex);
+            returnValue = false;
+        }
+    }
+
+    // no non-boat Jack nodes with fewer than 2 neighbors
+    for (const [nodeIndex, node] of graph.entries()) {
+        if (node.type != 'j' || node.boat)
+            continue;
+        if (node.neighbors.length < 2) {
+            console.error(`non-boat Jack node ${nodeIndex} has fewer than 2 neighbors`);
+            errorNodes.add(nodeIndex);
+            returnValue = false;
+        }
+    }
+
+    // no detective nodes with fewer than 2 neighbors
+    for (const [nodeIndex, node] of graph.entries()) {
+        if (node.type != 'd')
+            continue;
+        if (node.neighbors.length < 2) {
+            console.error(`detective node ${nodeIndex} has fewer than 2 neighbors`);
+            errorNodes.add(nodeIndex);
+            returnValue = false;
+        }
+    }
+
+    return returnValue;
+}
+
+function reset() {
+    pressed = {};
+    advanceFrame = false;
+    accumulator = 0;
+    simRate = 1.0;
+    prevTime = 0;
+
+    cs =  {
+        round: 0,
+        jack: {
+            moves: 0,
+            location: null
+        },
+        detectives: [
+            { location: 275 },
+            { location: 298 },
+            { location: 279 },
+        ],
+        clues: [],
+        murders: []
+    };
+    saveState();
+
+    //makeGraphConsistent();
+    if (!validateGraph()) {
+        console.error('invalid graph');
+    }
+
+    resize();
+}
+
+reset();
+
+function newNode(type, x, y, index) {
+
+    // default to current mouse position
+    x ??= round(mouseX/scaleFactor, 1);
+    y ??= round(mouseY/scaleFactor, 1);
+
+    // default insertion index
+    if (type == 'j') {
+        const indexOfLastJackNode = graph.filter(x => x.type == 'j').length;
+        index ??= indexOfLastJackNode+1;
+    } else if (type == 'd') {
+        index ??= graph.length;
+    }
+
+    // adjust neighbor indices for existing nodes
+    for (const node of graph) {
+        node.neighbors.forEach((item, itemIndex, arr) => {
+            if (item >= index) {
+                arr[itemIndex]++;
+            }
+        });
+    }
+
+    // insert new node
+    if (type == 'j') {
+        graph.splice(index, 0, { "type": "j", "pos": { "x": x, "y": y }, "quadrant": 0, "neighbors": [ ], "boat": false });
+    } else if (type == 'd') {
+        graph.splice(index, 0, { "type": "d", "pos": { "x": x, "y": y }, "starting": false, "neighbors": [ ] });
+    }
+
+    return index;
+}
+
+function connectNodes(a, b) {
+    graph[a].neighbors.push(b);
+    graph[b].neighbors.push(a);
+}
+
+function disconnectNodes(a, b) {
+    removeItemOnce(graph[a].neighbors, b);
+    removeItemOnce(graph[b].neighbors, a);
+}
+
+function deleteNode(nodeIndex) {
+    const toDisonnect = [...graph[nodeIndex].neighbors];
+    toDisonnect.forEach(neighborIndex => disconnectNodes(nodeIndex, neighborIndex));
+    for (const node of graph) {
+        node.neighbors.forEach((item, index, arr) => {
+            if (item > nodeIndex) {
+                arr[index]--;
+            }
+        });
+    }
+    graph.splice(nodeIndex, 1);
+}
+
+function undo() {
+    if (actionStack.length == 0)
+        return;
+    const action = actionStack.pop();
+    if (action.type == 'move') {
+        Object.assign(graph[action.nodeIndex].pos, action.from);
+    } else if (action.type == 'connect') {
+        disconnectNodes(action.src, action.dst);
+    } else if (action.type == 'disconnect') {
+        connectNodes(action.src, action.dst);
+    } else if (action.type == 'newNode') {
+        deleteNode(action.index);
+    } else if (action.type == 'deleteNode') {
+        newNode(action.nodeType, action.pos.x, action.pos.y, action.index);
+        action.neighbors.forEach(neighborIndex => connectNodes(action.index, neighborIndex));
+    }
+    redoStack.push(action);
+}
+
+function redo() {
+    if (redoStack.length == 0)
+        return;
+    const action = redoStack.pop();
+    if (action.type == 'move') {
+        Object.assign(graph[action.nodeIndex].pos, action.to);
+    } else if (action.type == 'connect') {
+        connectNodes(action.src, action.dst);
+    } else if (action.type == 'disconnect') {
+        disconnectNodes(action.src, action.dst);
+    } else if (action.type == 'newNode') {
+        newNode(action.nodeType, action.pos.x, action.pos.y);
+    } else if (action.type == 'deleteNode') {
+        deleteNode(action.index);
+    }
+    actionStack.push(action);
+}
+
+function px(x, f=0.0) { return Math.round(x) + f; }
+
+function removeItemOnce(arr, value) {
+    const index = arr.indexOf(value);
+    if (index > -1) {
+        arr.splice(index, 1);
+    }
+    return arr;
+}
+
+function hasDuplicates(array) {
+    return (new Set(array)).size !== array.length;
+}
+
+function round(value, precision) {
+    const multiplier = Math.pow(10, precision || 0);
+    return Math.round(value * multiplier) / multiplier;
+}
+
+function drawRect(sr)
+{
+    ctx.fillRect(px(sr.x - sr.w/2), px(sr.y - sr.h/2), sr.w, sr.h);
+}
+
+function draw() {
+    ctx.clearRect(0, 0, width, height);
+
+    ctx.fillStyle = "hsl(28, 60%, 75%)";
+    ctx.fillRect(0, 0, width, height);
+
+    // draw grid
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "hsl(0, 0%, 50%)";
+    for (let c = 0; c < 12; c++) {
+        ctx.beginPath();
+        ctx.moveTo(px(c*scaleFactor, 0.5), 0);
+        ctx.lineTo(px(c*scaleFactor, 0.5), 12*scaleFactor);
+        ctx.stroke();
+    }
+    for (let r = 0; r < 12; r++) {
+        ctx.beginPath();
+        ctx.moveTo(0,               px(r*scaleFactor, 0.5));
+        ctx.lineTo(12*scaleFactor,  px(r*scaleFactor, 0.5));
+        ctx.stroke();
+    }
+
+    const hoverNodeIdx = getNodeNear(mouseX, mouseY);
+
+    // draw Jack Graph
+    ctx.lineWidth = 2;
+    for (const [nodeIndex, jackNode] of graph.entries()) {
+        if (jackNode.type != 'j')
+            continue;
+        // skip dummy node
+        if (nodeIndex == 0)
+            continue;
+
+        // === BEGIN FOR DEBUG ===
+        if ((jackNode.pos.x == 0) && (jackNode.pos.y == 0)) {
+            jackNode.pos.x = 1 + ((nodeIndex-8) % 20) * 0.5;
+            jackNode.pos.y = 5 + Math.floor((nodeIndex-8) / 20) * 0.5;
+        }
+        // === END   FOR DEBUG ===
+
+        // draw lines to detective nodes
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "black";
+        ctx.setLineDash([5, 5]);
+        for (const detNodeIndex of jackNode.neighbors) {
+            const detNode = graph[detNodeIndex];
+            if (detNode === undefined) {
+                continue;
+            }
+            ctx.beginPath();
+            ctx.moveTo(
+                jackNode.pos.x*scaleFactor,
+                jackNode.pos.y*scaleFactor,
+            );
+            ctx.lineTo(detNode.pos.x*scaleFactor, detNode.pos.y*scaleFactor);
+            ctx.stroke();
+        }
+        ctx.setLineDash([]);
+
+        // circle
+        ctx.strokeStyle = "black";
+        ctx.fillStyle = jackNode.quadrant == 0 ? "black" : "white";
+        // === BEGIN FOR DEBUG ===
+        //if (jackNode.quadrant == 1)         { ctx.fillStyle = "red"; }
+        //else if (jackNode.quadrant == 2)    { ctx.fillStyle = "green"; }
+        //else if (jackNode.quadrant == 3)    { ctx.fillStyle = "blue"; }
+        //else if (jackNode.quadrant == 4)    { ctx.fillStyle = "purple"; }
+        if (jackNode.boat) ctx.fillStyle = "skyblue";
+        if (hoverNodeIdx == nodeIndex) ctx.fillStyle = "orange";
+        if (errorNodes.has(nodeIndex)) ctx.fillStyle = "red";
+        // === END  FOR DEBUG ===
+        ctx.beginPath();
+        ctx.arc(
+            jackNode.pos.x*scaleFactor,
+            jackNode.pos.y*scaleFactor,
+            0.14*scaleFactor,
+            0, Math.PI*2
+        );
+        ctx.stroke();
+        ctx.fill();
+
+        // node label
+        ctx.fillStyle = jackNode.quadrant == 0 ? "white" : "black";
+        ctx.font = `bold ${Math.floor(scaleFactor/6)}px Arial`;
+        ctx.fillText(
+            `${nodeIndex}`,
+            jackNode.pos.x*scaleFactor - ctx.measureText(`${nodeIndex}`).width/2,
+            jackNode.pos.y*scaleFactor + scaleFactor/20
+        );
+    }
+
+    // draw detective graph
+    for (const [detNodeIndex, detNode] of graph.entries()) {
+        if (detNode.type != 'd')
+            continue;
+        // === BEGIN FOR DEBUG ===
+        if ((detNode.pos.x == 0) && (detNode.pos.y == 0)) {
+            detNode.pos.x = 1 + ((detNodeIndex-189) % 20) * 0.5;
+            detNode.pos.y = 8.5 + Math.floor((detNodeIndex-189) / 20) * 0.5;
+        }
+        // === END   FOR DEBUG ===
+        // draw lines to detective nodes
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "black";
+        ctx.setLineDash([5, 5]);
+        for (const neighborIndex of detNode.neighbors) {
+            if (neighborIndex < detNodeIndex)
+                continue; // draw only one line (A->B, skip B->A)
+            const detNode2 = graph[neighborIndex];
+            if (detNode2 === undefined) {
+                continue;
+            }
+            ctx.beginPath();
+            ctx.moveTo(
+                detNode.pos.x*scaleFactor,
+                detNode.pos.y*scaleFactor,
+            );
+            ctx.lineTo(detNode2.pos.x*scaleFactor, detNode2.pos.y*scaleFactor);
+            ctx.stroke();
+        }
+        ctx.setLineDash([]);
+
+        // square
+        ctx.lineWidth = 6;
+        ctx.strokeStyle =  "gold";
+        ctx.fillStyle = "black";
+        if (hoverNodeIdx == detNodeIndex) ctx.fillStyle = "orange";
+        if (errorNodes.has(detNodeIndex)) ctx.fillStyle = "red";
+        ctx.beginPath();
+        ctx.rect(
+            detNode.pos.x*scaleFactor - scaleFactor/20,
+            detNode.pos.y*scaleFactor - scaleFactor/20,
+            scaleFactor/10,
+            scaleFactor/10
+        );
+        if (detNode.starting)
+            ctx.stroke();
+        ctx.fill();
+
+        // === BEGIN FOR DEBUG ===
+        // node label
+        if (hoverNodeIdx == detNodeIndex) {
+            ctx.fillStyle = "red";
+            ctx.font = `bold ${Math.floor(scaleFactor/6)}px Arial`;
+            ctx.fillText(
+                `${detNodeIndex-0}`,
+                detNode.pos.x*scaleFactor - scaleFactor/20,
+                detNode.pos.y*scaleFactor - scaleFactor/10
+            );
+        }
+        // === END   FOR DEBUG ===
+    }
+
+    // draw new line from right-click
+    if (rightClickedNodeIndex) {
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "black";
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(
+            graph[rightClickedNodeIndex].pos.x*scaleFactor,
+            graph[rightClickedNodeIndex].pos.y*scaleFactor,
+        );
+        ctx.lineTo(mouseX, mouseY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    // detectives
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "black";
+    for (const [detNum, detective] of cs.detectives.entries()) {
+        if (detective.location === null)
+            continue;
+        const detPos = graph[detective.location].pos;
+        ctx.beginPath();
+        ctx.rect(
+            detPos.x*scaleFactor - scaleFactor/8,
+            detPos.y*scaleFactor - scaleFactor/8,
+            scaleFactor/4,
+            scaleFactor/4
+        );
+        ctx.fillStyle = detectiveColors[detNum];
+        ctx.fill();
+        ctx.stroke();
+    }
+
+    // jack
+}
+
+function handleInput(t, dt) {
+
+    if (pressed.ArrowLeft)     { }
+    if (pressed.ArrowRight)    { }
+    if (pressed.ArrowDown)     { }
+    if (pressed.ArrowUp)       { }
+}
+
+function update(t, dt) {
+    // update game state here
+}
+
+// TODO: avoid consuming processor
+function loop(t) {
+    let frameTime = t - prevTime;
+    prevTime = t;
+
+    if (frameTime > MAX_FRAMETIME) {
+        //console.log(`frameTime > MAX_FRAMETIME : ${frameTime}`);
+        frameTime = MAX_FRAMETIME;
+    }
+
+    accumulator += frameTime * simRate;
+
+    while (accumulator >= fixed_dt) {
+        handleInput(t, fixed_dt);
+        update(t, fixed_dt);
+        accumulator -= fixed_dt;
+    }
+    advanceFrame = false;
+
+    draw();
+    //window.requestAnimationFrame(loop);
+}
+
+loop(0);
+
+function blur(e) {
+}
+
+function focus(e) {
+}
+
+function resize(e) {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+    scaleFactor = Math.floor(canvas.height/12);
+    draw();
+}
+
+function keydown(e) {
+    if (e.key === 'Escape') {
+    } else if (e.key === 's') {
+        saveState();
+    } else if (e.key === 'l') {
+        restoreState();
+    } else if (e.key === ',' || e.key === '.') {
+        if (e.key === ',')
+            simRate /= 2;
+        else if (e.key === '.')
+            simRate *= 2;
+        console.log(`simRate: ${simRate}`);
+    } else if (e.key === '`') {
+        advanceFrame = true;
+    } else if (e.key === 'R') {
+        reset();
+    } else if (e.key === 'j' || e.key == 'd') {
+        const newNodeIndex = newNode(e.key);
+        actionStack.push({
+            type: 'newNode',
+            nodeType: e.key,
+            pos: Object.assign({}, graph[newNodeIndex].pos),
+            index: newNodeIndex
+        });
+        redoStack.length = 0;
+    } else if (e.key === 'Delete') {
+        const nodeIndex = getNodeNear(mouseX, mouseY);
+        if (nodeIndex) {
+            actionStack.push({
+                type: 'deleteNode',
+                nodeType: graph[nodeIndex].type,
+                pos: Object.assign({}, graph[nodeIndex].pos),
+                index: nodeIndex,
+                neighbors: [...graph[nodeIndex].neighbors]
+            });
+            redoStack.length = 0;
+            deleteNode(nodeIndex);
+        }
+    } else if (e.key === 'u') {
+        undo();
+    } else if (e.key === 'r') {
+        redo();
+    } else if (e.key === '?') {
+        console.log('TODO: help');
+        validateGraph();
+    } else {
+        pressed[e.key] = true;
+    }
+    draw();
+}
+
+function keyup(e) {
+    if (e.key === 'Escape') {
+    } else if (e.key === 'r') {
+    } else {
+        pressed[e.key] = false;
+    }
+    draw();
+}
+
+function getNodeNear(x, y, radius = 0.14) {
+    for (const [nodeIndex, jackNode] of graph.entries()) {
+        const dx = x - jackNode.pos.x*scaleFactor;
+        const dy = y - jackNode.pos.y*scaleFactor;
+        // TODO: base radius off node type
+        if (Math.sqrt(dx*dx + dy*dy) < radius*scaleFactor) {
+            return nodeIndex;
+        }
+    }
+    return null;
+}
+
+const leftButton = 0;
+const rightButton = 2;
+
+function mousedown(e) {
+    if (e.button == leftButton) {
+        if (rightClickedNodeIndex == null) {
+            clickedNodeIndex = getNodeNear(e.clientX, e.clientY);
+            if (clickedNodeIndex) {
+                clickedNodeOriginalPos = Object.assign({}, graph[clickedNodeIndex].pos);
+            }
+        } else {
+            let dstIndex = getNodeNear(e.clientX, e.clientY);
+            if (dstIndex == null) {
+                rightClickedNodeIndex = null;
+            } else {
+                if (graph[rightClickedNodeIndex].type == 'j' && graph[dstIndex].type == 'j') {
+                    console.log('cannot connect two jack nodes directly');
+                } else if (rightClickedNodeIndex == dstIndex) {
+                    console.log('cannot connect a node to itself');
+                } else {
+                    if (!graph[rightClickedNodeIndex].neighbors.includes(dstIndex)) {
+                        actionStack.push({type: 'connect', src: rightClickedNodeIndex, dst: dstIndex});
+                        redoStack.length = 0;
+                        connectNodes(rightClickedNodeIndex, dstIndex);
+                    } else {
+                        actionStack.push({type: 'disconnect', src: rightClickedNodeIndex, dst: dstIndex});
+                        redoStack.length = 0;
+                        disconnectNodes(rightClickedNodeIndex, dstIndex);
+                    }
+                    rightClickedNodeIndex = null;
+                }
+            }
+        }
+    } else if (e.button == rightButton) {
+        rightClickedNodeIndex = getNodeNear(e.clientX, e.clientY);
+    }
+    draw();
+}
+
+function mouseup(e) {
+    if (e.button == leftButton) {
+        if (clickedNodeIndex) {
+            actionStack.push({type: 'move', nodeIndex: clickedNodeIndex, from: Object.assign({}, clickedNodeOriginalPos), to: Object.assign({}, graph[clickedNodeIndex].pos)});
+            redoStack.length = 0;
+            clickedNodeIndex = null;
+        }
+    }
+    draw();
+}
+
+function mousemove(e) {
+    if (clickedNodeIndex) {
+        graph[clickedNodeIndex].pos.x = round(e.clientX / scaleFactor, 1);
+        graph[clickedNodeIndex].pos.y = round(e.clientY / scaleFactor, 1);
+    }
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+    draw();
+}
+
+window.addEventListener('blur', blur);
+window.addEventListener('focus', focus);
+window.addEventListener('keydown', keydown);
+window.addEventListener('keyup', keyup);
+window.addEventListener('resize', resize);
+window.addEventListener('mousedown', mousedown);
+window.addEventListener('mouseup', mouseup);
+window.addEventListener('mousemove', mousemove);
+window.addEventListener('contextmenu', event => event.preventDefault());
+
+        </script>
+    </body>
+
+</html>
