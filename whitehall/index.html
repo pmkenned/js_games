@@ -35,7 +35,7 @@ const errorNodes = new Set();
 const canvas = document.getElementById('myCanvas');
 const ctx = canvas.getContext('2d');
 
-let scaleFactor = 80; // TODO: based on window dimensions
+let scaleFactor = 80;
 
 const fixed_dt = 8; // 125 Hz
 const MAX_FRAMETIME = 250;
@@ -52,8 +52,9 @@ const TURN_CLUES            = 5;
 const TURN_JACK_WINS        = 6;
 const TURN_DETECTIVES_WIN   = 7;
 
-const ACTION_CLUES  = 0;
-const ACTION_ARREST = 1;
+const ACTION_NONE   = 0;
+const ACTION_CLUES  = 1;
+const ACTION_ARREST = 2;
 
 let editorMode = false;
 let clickedNodeIndex = null;
@@ -203,7 +204,7 @@ function reset() {
             { location: null, /*298*/ moved: false, acted: false, checked: [] },
             { location: null, /*279*/ moved: false, acted: false, checked: [] },
         ],
-        action: ACTION_CLUES,
+        action: ACTION_NONE,
         clues: [],
         murders: []
     };
@@ -358,19 +359,34 @@ function drawText(text, params) {
         ctx.strokeText(text, params.x, params.y);
 }
 
-function jackNodesWithinN(location, n) {
-    const withinN = new Set();
-    if (n <= 0)
-        return [];
+function adjacentJackNodes(location, ignoreDetectives=false) {
+    const adjacent = new Set();
+    const visited = new Set();
     const queue = [];
-    // TODO: BFS
-    //graph[cs.jack.location].neighbors.forEach(ni => queue.push(ni));
-    for (const neighborIndex of graph[location].neighbors) {
+    visited.add(cs.jack.location);
+    queue.unshift(cs.jack.location);
+    while (queue.length > 0) {
+        const x = queue.pop();
+        graph[x].neighbors.forEach(ni => {
+            if (graph[ni].type == 'd' && !visited.has(ni)) {
+                if (cs.detectives.every(d => d.location != ni) || ignoreDetectives) {
+                    visited.add(ni);
+                    queue.unshift(ni);
+                }
+            } else {
+                adjacent.add(ni);
+            }
+        });
     }
-    withinN.add(53);
-    withinN.add(13);
-    withinN.delete(location);
-    return Array.from(withinN);
+    adjacent.delete(location); // jack cannot stay put
+    return Array.from(adjacent);
+}
+
+function getMovesForJack() {
+    if (cs.jack.location == null)
+        return [];
+    else
+        return adjacentJackNodes(cs.jack.location);
 }
 
 function detNodesWithinN(location, n) {
@@ -389,6 +405,20 @@ function detNodesWithinN(location, n) {
         }
     }
     return Array.from(withinN);
+}
+
+function getMovesForDetective(detective) {
+    let moves = [];
+    if (detective != null && !cs.detectives[detective].moved) {
+        moves = detNodesWithinN(cs.detectives[detective].location, 2);
+        // cannot move where another detective is
+        for (let di = 0; di < 3; di++) {
+            if (di == detective)
+                continue;
+            removeItemOnce(moves, cs.detectives[di].location);
+        }
+    }
+    return moves;
 }
 
 function draw() {
@@ -415,12 +445,13 @@ function draw() {
 
     const hoverNodeIdx = getNodeNear(mouseX, mouseY);
 
+    const startingNodes = graph.map((n, index) => { return {index: index, n: n}; }).filter(e => e.n.starting).map(e => e.index);
+
     const cluesOptions = (selectedDetective != null && !cs.detectives[selectedDetective].acted) ?
         graph[cs.detectives[selectedDetective].location].neighbors.filter(n => graph[n].type == 'j'):
         [];
-    const availMoves = (selectedDetective != null && !cs.detectives[selectedDetective].moved) ?
-        detNodesWithinN(cs.detectives[selectedDetective].location, 2) :
-        [];
+    const availDetMoves = getMovesForDetective(selectedDetective);
+    const availJackMoves = getMovesForJack();
 
     // draw Jack Graph
     ctx.lineWidth = 2;
@@ -485,6 +516,12 @@ function draw() {
             ctx.fill();
         }
 
+        // show jack's available moves
+        if (cs.turn == TURN_JACKMOVE && availJackMoves.includes(nodeIndex)) {
+            ctx.strokeStyle = "red";
+            ctx.stroke();
+        }
+
         // show options for checking for clues
         if (selectedDetective != null) {
             const alreadyChecked = cs.detectives[selectedDetective].checked.includes(nodeIndex);
@@ -515,7 +552,7 @@ function draw() {
         }
 
         // chosen locations
-        if (cs.turn == TURN_JACK_START || cs.turn == TURN_FIRST_MURDER) {
+        if (cs.turn == TURN_JACK_START || cs.turn == TURN_FIRST_MURDER || cs.turn == TURN_JACKMOVE) {
             if (cs.chosenLocations.includes(nodeIndex)) {
                 ctx.fillStyle = "hsla(0, 80%, 50%, 0.7)";
                 ctx.fill();
@@ -570,11 +607,6 @@ function draw() {
         ctx.setLineDash([]);
 
         // square
-        ctx.lineWidth = 6;
-        ctx.strokeStyle =  "gold";
-        ctx.fillStyle = "black";
-        if (hoverNodeIdx == detNodeIndex) ctx.fillStyle = "orange";
-        if (errorNodes.has(detNodeIndex)) ctx.fillStyle = "red";
         ctx.beginPath();
         ctx.rect(
             detNode.pos.x*scaleFactor - scaleFactor/20,
@@ -582,17 +614,34 @@ function draw() {
             scaleFactor/10,
             scaleFactor/10
         );
-        if (detNode.starting)
+        if (cs.turn == TURN_DET_START && detNode.starting) {
+            ctx.lineWidth = 6;
+            ctx.strokeStyle =  "gold";
             ctx.stroke();
+            const label = `${startingNodes.indexOf(detNodeIndex)+1}`;
+            drawText(label, {
+                x: detNode.pos.x*scaleFactor - ctx.measureText(label).width/2,
+                y: detNode.pos.y*scaleFactor - scaleFactor/5,
+                fontSize: Math.floor(scaleFactor/3),
+                font: "Arial",
+                fillStyle: "orange",
+                strokeStyle: "red",
+                lineWidth: 2,
+                bold: true
+            });
+        }
+        ctx.fillStyle = "black";
+        if (hoverNodeIdx == detNodeIndex) ctx.fillStyle = "orange";
+        if (errorNodes.has(detNodeIndex)) ctx.fillStyle = "red";
         ctx.fill();
 
         // TODO: draw these above everything
         if (selectedDetective != null) {
-            if (cs.turn == TURN_DETMOVE && availMoves.includes(detNodeIndex)) {
+            if (cs.turn == TURN_DETMOVE && availDetMoves.includes(detNodeIndex)) {
                 ctx.strokeStyle = "white";
                 ctx.stroke();
                 ctx.fill();
-                const label = `${availMoves.indexOf(detNodeIndex)+1}`;
+                const label = `${availDetMoves.indexOf(detNodeIndex)+1}`;
                 drawText(label, {
                     x: detNode.pos.x*scaleFactor - ctx.measureText(label).width/2,
                     y: detNode.pos.y*scaleFactor - scaleFactor/5,
@@ -621,7 +670,7 @@ function draw() {
     }
 
     // draw new line from right-click
-    if (rightClickedNodeIndex) {
+    if (rightClickedNodeIndex != null) {
         ctx.lineWidth = 2;
         ctx.strokeStyle = "black";
         ctx.setLineDash([5, 5]);
@@ -771,7 +820,7 @@ function keydown(e) {
             redoStack.length = 0;
         } else if (e.key === 'Delete') {
             const nodeIndex = getNodeNear(mouseX, mouseY);
-            if (nodeIndex) {
+            if (nodeIndex != null) {
                 actionStack.push({
                     type: 'deleteNode',
                     nodeType: graph[nodeIndex].type,
@@ -794,7 +843,45 @@ function keydown(e) {
             restoreState();
         }
 
-        if (cs.turn == TURN_DETMOVE) {
+        if (cs.turn == TURN_JACK_START) {
+            if (e.key == 'r') {
+                cs.chosenLocations = [];
+                for (let i = 1; i <= 4; i++) {
+                    let r = 0;
+                    while (graph[r].quadrant != i || graph[r].boat || cs.chosenLocations.includes(r)) {
+                        r = Math.floor(Math.random()*189);
+                    }
+                    cs.chosenLocations.push(r);
+                }
+            } else if (e.key == 'Enter') {
+                if (cs.chosenLocations.length == 4) {
+                    cs.turn = TURN_DET_START;
+                }
+            }
+        } else if (cs.turn == TURN_DET_START) {
+            if (e.key >= '1' && e.key <= '9') {
+                const startingNodes = graph.map((n, index) => { return {index: index, n: n}; }).filter(e => e.n.starting).map(e => e.index);
+                if (e.key <= startingNodes.length) {
+                    if (cs.detectives[0].location == null) {
+                        cs.detectives[0].location = startingNodes[e.key-1];
+                    } else if (cs.detectives[1].location == null) {
+                        cs.detectives[1].location = startingNodes[e.key-1];
+                    } else if (cs.detectives[2].location == null) {
+                        cs.detectives[2].location = startingNodes[e.key-1];
+                        cs.turn = TURN_FIRST_MURDER;
+                    }
+                }
+            }
+        } else if (cs.turn == TURN_FIRST_MURDER) {
+            if (e.key >= '1' && e.key <= '9') {
+                if (e.key <= cs.chosenLocations.length) {
+                    cs.murders.push(cs.chosenLocations[e.key-1]);
+                    cs.jack.location = cs.chosenLocations[e.key-1];
+                    cs.turn = TURN_JACKMOVE;
+                }
+            }
+        } else if (cs.turn == TURN_DETMOVE) {
+
             if (e.key === 'y') {
                 selectedDetective = (selectedDetective == 0) ? null : 0;
             } if (e.key === 'b') {
@@ -802,15 +889,14 @@ function keydown(e) {
             } else if (e.key === 'r') {
                 selectedDetective = (selectedDetective == 2) ? null : 2;
             }
-        }
 
-        if (cs.turn == TURN_DETMOVE) {
+            if (e.key === 'Escape') {
+                selectedDetective = null;
+            }
             if (e.key >= '1' && e.key <= '9') {
                 // TODO: allow for selecting moves above 9
                 if (selectedDetective != null) {
-                    const availMoves = (!cs.detectives[selectedDetective].moved) ?
-                        detNodesWithinN(cs.detectives[selectedDetective].location, 2) :
-                        [];
+                    const availMoves = getMovesForDetective(selectedDetective);
                     if (e.key <= availMoves.length) {
                         cs.detectives[selectedDetective].location = availMoves[e.key-1];
                         cs.detectives[selectedDetective].moved = true;
@@ -820,15 +906,17 @@ function keydown(e) {
             }
             if (cs.detectives.every(d => d.moved)) {
                 cs.turn = TURN_CLUES;
-                cs.action = ACTION_CLUES;
+                cs.action = ACTION_NONE;
                 selectedDetective = 0;
             }
         } else if (cs.turn == TURN_CLUES) {
             // TODO
-            if (e.key == 'a') {
-                cs.action = ACTION_ARREST;
-            } else if (e.key == 'c') {
-                cs.action = ACTION_CLUES;
+            if (cs.action === ACTION_NONE) {
+                if (e.key == 'a') {
+                    cs.action = ACTION_ARREST;
+                } else if (e.key == 'c') {
+                    cs.action = ACTION_CLUES;
+                }
             }
 
             if (e.key >= '1' && e.key <= '9') {
@@ -894,7 +982,7 @@ function mousedown(e) {
         if (e.button == LEFT_BUTTON) {
             if (rightClickedNodeIndex == null) {
                 clickedNodeIndex = getNodeNear(e.clientX, e.clientY);
-                if (clickedNodeIndex) {
+                if (clickedNodeIndex != null) {
                     clickedNodeOriginalPos = Object.assign({}, graph[clickedNodeIndex].pos);
                 }
             } else {
@@ -941,7 +1029,7 @@ function mousedown(e) {
             }
         } else if (cs.turn == TURN_DET_START) {
             const nodeIndex = getNodeNear(mouseX, mouseY);
-            if (graph[nodeIndex].type == 'd' && graph[nodeIndex].starting) {
+            if (nodeIndex != null && graph[nodeIndex].type == 'd' && graph[nodeIndex].starting) {
                 if (cs.detectives[0].location == null) {
                     cs.detectives[0].location = nodeIndex;
                 } else if (cs.detectives[1].location == null) {
@@ -970,7 +1058,7 @@ function mousedown(e) {
             if (cs.jack.moves >= 15) {
                 cs.turn = TURN_DETECTIVES_WIN;
             }
-            const availMoves = jackNodesWithinN(cs.jack.location);
+            const availMoves = getMovesForJack();
             const nodeIndex = getNodeNear(mouseX, mouseY);
             if (nodeIndex != null) {
                 if (availMoves.includes(nodeIndex)) {
@@ -980,6 +1068,24 @@ function mousedown(e) {
                 }
             }
         } else if (cs.turn == TURN_DETMOVE) {
+            const nodeIndex = getNodeNear(mouseX, mouseY);
+            if (nodeIndex != null) {
+                if (selectedDetective == null) {
+                    cs.detectives.forEach((d, di) => { if (d.location == nodeIndex) selectedDetective = di; });
+                } else {
+                    const availMoves = getMovesForDetective(selectedDetective);
+                    if (availMoves.includes(nodeIndex)) {
+                        cs.detectives[selectedDetective].location = nodeIndex;
+                        cs.detectives[selectedDetective].moved = true;
+                        selectedDetective = null;
+                    }
+                }
+            }
+            if (cs.detectives.every(d => d.moved)) {
+                cs.turn = TURN_CLUES;
+                cs.action = ACTION_CLUES;
+                selectedDetective = 0;
+            }
         } else if (cs.turn == TURN_CLUES) {
         } else if (cs.turn == TURN_JACK_WINS) {
         } else if (cs.turn == TURN_DETECTIVES_WIN) {
