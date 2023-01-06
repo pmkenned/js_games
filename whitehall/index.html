@@ -194,7 +194,7 @@ function reset() {
     cs =  {
         turn: TURN_JACK_START,
         round: 0,
-        chosenLocations: [], // [32, 46, 147, 120],
+        chosenLocations: [0, 0, 0, 0], // [32, 46, 147, 120],
         jack: {
             moves: [],
             location: null
@@ -385,13 +385,12 @@ function adjacentJackNodes(location, ignoreDetectives=false) {
 function getMovesForJack() {
     if (cs.jack.location == null)
         return [];
-    else
-        return adjacentJackNodes(cs.jack.location);
+    return adjacentJackNodes(cs.jack.location);
 }
 
 function detNodesWithinN(location, n) {
     const withinN = new Set();
-    if (n <= 0)
+    if (n <= 0 || location == null)
         return [];
     for (const neighborIndex of graph[location].neighbors) {
         if (graph[neighborIndex].type == 'd') {
@@ -421,6 +420,65 @@ function getMovesForDetective(detective) {
     return moves;
 }
 
+function getClueOptions(detective) {
+    if (selectedDetective == null ||
+        cs.detectives[selectedDetective].acted ||
+        cs.detectives[selectedDetective].location == null)
+        return [];
+    return graph[cs.detectives[selectedDetective].location].neighbors.filter(n => graph[n].type == 'j');
+}
+
+function chooseClue(choice) {
+    const clueOptions = getClueOptions(selectedDetective);
+    // TODO: if no new clues are found, allow detective to continue looking
+    if (cs.jack.moves.includes(choice)) {
+        cs.clues.push(choice);
+        cs.detectives[selectedDetective].acted = true;
+    } else {
+        cs.detectives[selectedDetective].checked.push(choice);
+        if (cs.detectives[selectedDetective].checked.length == clueOptions.length) {
+            cs.detectives[selectedDetective].acted = true;
+        }
+    }
+    // selected the next detective
+    if (cs.detectives[selectedDetective].acted) {
+        selectedDetective++;
+        if (selectedDetective > 2)
+            selectedDetective = null;
+    }
+
+    // proceed if every detective has acted
+    if (cs.detectives.every(d => d.acted)) {
+        cs.detectives.forEach(d => {
+            d.moved = false;
+            d.acted = false;
+            d.checked = [];
+        });
+        cs.turn = TURN_JACKMOVE;
+        // TODO: make it clear that a murder has happened
+        if (cs.chosenLocations.includes(cs.jack.location) && !cs.murders.includes(cs.jack.location)) {
+            cs.murders.push(cs.jack.location);
+            cs.round++;
+            cs.jack.moves = [];
+            cs.clues = [];
+        } else if (cs.jack.moves.length >= 15) {
+            cs.turn = TURN_DETECTIVES_WIN;
+        }
+        if (cs.round == 4) {
+            cs.turn = TURN_JACK_WINS;
+        }
+    }
+}
+
+function chooseStartingLocation(choice) {
+    cs.detectives[selectedDetective].location = choice;
+    selectedDetective++
+    if (selectedDetective > 2) {
+        selectedDetective = null;
+        cs.turn = TURN_FIRST_MURDER;
+    }
+}
+
 function draw() {
     ctx.clearRect(0, 0, width, height);
 
@@ -444,14 +502,18 @@ function draw() {
     }
 
     const hoverNodeIdx = getNodeNear(mouseX, mouseY);
-
     const startingNodes = graph.map((n, index) => { return {index: index, n: n}; }).filter(e => e.n.starting).map(e => e.index);
-
-    const cluesOptions = (selectedDetective != null && !cs.detectives[selectedDetective].acted) ?
-        graph[cs.detectives[selectedDetective].location].neighbors.filter(n => graph[n].type == 'j'):
-        [];
+    const clueOptions = getClueOptions(selectedDetective);
     const availDetMoves = getMovesForDetective(selectedDetective);
     const availJackMoves = getMovesForJack();
+
+    // TODO: make the following clear:
+    // - murder locations
+    // - clues
+    // - jack's current position
+    // - clue option for detective
+    // - move option for detective
+    // - move option for jack
 
     // draw Jack Graph
     ctx.lineWidth = 2;
@@ -520,17 +582,48 @@ function draw() {
         if (cs.turn == TURN_JACKMOVE && availJackMoves.includes(nodeIndex)) {
             ctx.strokeStyle = "red";
             ctx.stroke();
+
+            const label = `${availJackMoves.indexOf(nodeIndex)+1}`;
+            drawText(label, {
+                x: jackNode.pos.x*scaleFactor - ctx.measureText(label).width/2,
+                y: jackNode.pos.y*scaleFactor - scaleFactor/5,
+                fontSize: Math.floor(scaleFactor/3),
+                font: "Arial",
+                fillStyle: "orange",
+                strokeStyle: "red",
+                lineWidth: 2,
+                bold: true
+            });
+        }
+
+        // label for choosing murder location
+        // TODO: reduce copy-paste
+        if (cs.turn == TURN_FIRST_MURDER && cs.chosenLocations.includes(nodeIndex)) {
+            ctx.strokeStyle = "red";
+            ctx.stroke();
+
+            const label = `${cs.chosenLocations.indexOf(nodeIndex)+1}`;
+            drawText(label, {
+                x: jackNode.pos.x*scaleFactor - ctx.measureText(label).width/2,
+                y: jackNode.pos.y*scaleFactor - scaleFactor/5,
+                fontSize: Math.floor(scaleFactor/3),
+                font: "Arial",
+                fillStyle: "orange",
+                strokeStyle: "red",
+                lineWidth: 2,
+                bold: true
+            });
         }
 
         // show options for checking for clues
         if (selectedDetective != null) {
             const alreadyChecked = cs.detectives[selectedDetective].checked.includes(nodeIndex);
-            if (cs.turn == TURN_CLUES && cluesOptions.includes(nodeIndex)) {
+            if (cs.turn == TURN_CLUES && clueOptions.includes(nodeIndex)) {
                 ctx.lineWidth = 2;
                 ctx.strokeStyle = "red";
                 if (!alreadyChecked)
                     ctx.stroke();
-                const label = `${cluesOptions.indexOf(nodeIndex)+1}`;
+                const label = `${clueOptions.indexOf(nodeIndex)+1}`;
                 drawText(label, {
                     x: jackNode.pos.x*scaleFactor - ctx.measureText(label).width/2,
                     y: jackNode.pos.y*scaleFactor - scaleFactor/5,
@@ -670,7 +763,7 @@ function draw() {
     }
 
     // draw new line from right-click
-    if (rightClickedNodeIndex != null) {
+    if (editorMode && rightClickedNodeIndex != null) {
         ctx.lineWidth = 2;
         ctx.strokeStyle = "black";
         ctx.setLineDash([5, 5]);
@@ -703,7 +796,7 @@ function draw() {
         ctx.stroke();
     }
 
-    // jack
+    // jack move counter
     for (let i = 0; i < 16; i++) {
         ctx.beginPath();
         ctx.arc(
@@ -742,8 +835,35 @@ function draw() {
     else if (cs.turn == TURN_DETECTIVES_WIN)    { msg = "Detectives win!"; }
 
     drawText(msg, {
-        fontSize: 25,
-        y: height-8,
+        fontSize: scaleFactor/3,
+        y: height - scaleFactor/2,
+        stroke: false,
+        fillStyle: "black",
+        bold: true
+    });
+
+    let msg2 = "";
+    if (cs.turn == TURN_JACK_START && cs.chosenLocations.filter(loc => loc > 0).length == 4) {
+        msg2 = "Press ENTER to continue";
+    } else if (cs.turn == TURN_DET_START) {
+        msg2 = "";
+    } else if (cs.turn == TURN_FIRST_MURDER) {
+        msg2 = "";
+    } else if (cs.turn == TURN_JACKMOVE) {
+        msg2 = "";
+    } else if (cs.turn == TURN_DETMOVE) {
+        msg2 = "";
+    } else if (cs.turn == TURN_CLUES) {
+        msg2 = "";
+    } else if (cs.turn == TURN_JACK_WINS) {
+        msg2 = "";
+    } else if (cs.turn == TURN_DETECTIVES_WIN) {
+        msg2 = "";
+    }
+
+    drawText(msg2, {
+        fontSize: scaleFactor/3,
+        y: height - scaleFactor/10,
         stroke: false,
         fillStyle: "black",
         bold: true
@@ -786,7 +906,7 @@ function focus(e) {
 function resize(e) {
     width = canvas.width = window.innerWidth;
     height = canvas.height = window.innerHeight;
-    scaleFactor = Math.floor(canvas.height/12);
+    scaleFactor = Math.floor(canvas.height/12.5);
     draw();
 }
 
@@ -854,22 +974,17 @@ function keydown(e) {
                     cs.chosenLocations.push(r);
                 }
             } else if (e.key == 'Enter') {
-                if (cs.chosenLocations.length == 4) {
+                if (cs.chosenLocations.filter(loc => loc > 0).length == 4) {
                     cs.turn = TURN_DET_START;
+                    selectedDetective = 0; // XXX
                 }
             }
         } else if (cs.turn == TURN_DET_START) {
             if (e.key >= '1' && e.key <= '9') {
                 const startingNodes = graph.map((n, index) => { return {index: index, n: n}; }).filter(e => e.n.starting).map(e => e.index);
+                // TODO: prevent choosing the same location more than once
                 if (e.key <= startingNodes.length) {
-                    if (cs.detectives[0].location == null) {
-                        cs.detectives[0].location = startingNodes[e.key-1];
-                    } else if (cs.detectives[1].location == null) {
-                        cs.detectives[1].location = startingNodes[e.key-1];
-                    } else if (cs.detectives[2].location == null) {
-                        cs.detectives[2].location = startingNodes[e.key-1];
-                        cs.turn = TURN_FIRST_MURDER;
-                    }
+                    chooseStartingLocation(startingNodes[e.key-1]);
                 }
             }
         } else if (cs.turn == TURN_FIRST_MURDER) {
@@ -878,6 +993,17 @@ function keydown(e) {
                     cs.murders.push(cs.chosenLocations[e.key-1]);
                     cs.jack.location = cs.chosenLocations[e.key-1];
                     cs.turn = TURN_JACKMOVE;
+                }
+            }
+        } else if (cs.turn == TURN_JACKMOVE) {
+            if (e.key >= '1' && e.key <= '9') {
+                // TODO: jack loses if there are no available moves
+                const availMoves = getMovesForJack();
+                if (e.key <= availMoves.length) {
+                    cs.jack.location = availMoves[e.key-1];
+                    cs.jack.moves.push(availMoves[e.key-1]);
+                    cs.turn = TURN_DETMOVE;
+                    selectedDetective = 0; // XXX
                 }
             }
         } else if (cs.turn == TURN_DETMOVE) {
@@ -900,7 +1026,7 @@ function keydown(e) {
                     if (e.key <= availMoves.length) {
                         cs.detectives[selectedDetective].location = availMoves[e.key-1];
                         cs.detectives[selectedDetective].moved = true;
-                        selectedDetective = null;
+                        selectedDetective = null; // TODO: selected next detective
                     }
                 }
             }
@@ -920,37 +1046,10 @@ function keydown(e) {
             }
 
             if (e.key >= '1' && e.key <= '9') {
-                if (selectedDetective != null) {
-                    const cluesOptions = (!cs.detectives[selectedDetective].acted) ?
-                        graph[cs.detectives[selectedDetective].location].neighbors.filter(n => graph[n].type == 'j'):
-                        [];
-                    if (e.key <= cluesOptions.length) {
-                        if (cs.jack.moves.includes(cluesOptions[e.key-1])) {
-                            cs.clues.push(cluesOptions[e.key-1]);
-                            cs.detectives[selectedDetective].acted = true;
-                        } else {
-                            cs.detectives[selectedDetective].checked.push(cluesOptions[e.key-1]);
-                            if (cs.detectives[selectedDetective].checked.length == cluesOptions.length) {
-                                cs.detectives[selectedDetective].acted = true;
-                            }
-                        }
-                        // selected the next detective
-                        if (cs.detectives[selectedDetective].acted) {
-                            if (selectedDetective < 2)
-                                selectedDetective++;
-                            else 
-                                selectedDetective = null;
-                        }
-                    }
+                const clueOptions = getClueOptions(selectedDetective);
+                if (e.key <= clueOptions.length) {
+                    chooseClue(clueOptions[e.key-1]);
                 }
-            }
-            if (cs.detectives.every(d => d.acted)) {
-                cs.detectives.forEach(d => {
-                    d.moved = false;
-                    d.acted = false;
-                    d.checked = [];
-                });
-                cs.turn = TURN_JACKMOVE;
             }
         }
     }
@@ -1013,31 +1112,17 @@ function mousedown(e) {
         }
     } else {
         if (cs.turn == TURN_JACK_START) {
-            const chosenQuadrants = [false, false, false, false];
-            cs.chosenLocations.forEach(ml => chosenQuadrants[graph[ml].quadrant-1] = true);
-            const nodeIndex = getNodeNear(mouseX, mouseY);
-            if (nodeIndex != null) {
-                if (graph[nodeIndex].type == 'j'                    &&
-                    graph[nodeIndex].quadrant != 0                  &&
-                    !graph[nodeIndex].boat                          &&
-                    !chosenQuadrants[graph[nodeIndex].quadrant-1]) {
-                    cs.chosenLocations.push(nodeIndex);
-                    if (cs.chosenLocations.length == 4) {
-                        cs.turn = TURN_DET_START;
-                    }
-                }
+            const chosen = getNodeNear(mouseX, mouseY);
+            if (chosen != null              && 
+                graph[chosen].type == 'j'   &&
+                graph[chosen].quadrant != 0 &&
+                !graph[chosen].boat) {
+                cs.chosenLocations[graph[chosen].quadrant-1] = chosen;
             }
         } else if (cs.turn == TURN_DET_START) {
             const nodeIndex = getNodeNear(mouseX, mouseY);
             if (nodeIndex != null && graph[nodeIndex].type == 'd' && graph[nodeIndex].starting) {
-                if (cs.detectives[0].location == null) {
-                    cs.detectives[0].location = nodeIndex;
-                } else if (cs.detectives[1].location == null) {
-                    cs.detectives[1].location = nodeIndex;
-                } else if (cs.detectives[2].location == null) {
-                    cs.detectives[2].location = nodeIndex;
-                    cs.turn = TURN_FIRST_MURDER;
-                }
+                chooseStartingLocation(nodeIndex);
             }
         } else if (cs.turn == TURN_FIRST_MURDER) {
             const nodeIndex = getNodeNear(mouseX, mouseY);
@@ -1049,15 +1134,6 @@ function mousedown(e) {
                 }
             }
         } else if (cs.turn == TURN_JACKMOVE) {
-            if (cs.chosenLocations.includes(cs.jack.location) && !cs.murders.includes(cs.jack.location)) {
-                cs.murders.push(cs.jack.location);
-                cs.round++;
-                cs.jack.moves = [];
-                cs.clues = [];
-            }
-            if (cs.jack.moves >= 15) {
-                cs.turn = TURN_DETECTIVES_WIN;
-            }
             const availMoves = getMovesForJack();
             const nodeIndex = getNodeNear(mouseX, mouseY);
             if (nodeIndex != null) {
@@ -1065,6 +1141,7 @@ function mousedown(e) {
                     cs.jack.location = nodeIndex;
                     cs.jack.moves.push(nodeIndex);
                     cs.turn = TURN_DETMOVE;
+                    selectedDetective = 0; // XXX
                 }
             }
         } else if (cs.turn == TURN_DETMOVE) {
@@ -1087,6 +1164,9 @@ function mousedown(e) {
                 selectedDetective = 0;
             }
         } else if (cs.turn == TURN_CLUES) {
+            const nodeIndex = getNodeNear(mouseX, mouseY);
+            const clueOptions = getClueOptions(selectedDetective);
+            chooseClue(nodeIndex);
         } else if (cs.turn == TURN_JACK_WINS) {
         } else if (cs.turn == TURN_DETECTIVES_WIN) {
         }
