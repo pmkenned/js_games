@@ -43,13 +43,14 @@ const MAX_FRAMETIME = 250;
 const LEFT_BUTTON   = 0;
 const RIGHT_BUTTON  = 2;
 
-const TURN_CHOOSE_LOCATIONS = 0;
-const TURN_FIRST_MURDER     = 1;
-const TURN_JACKMOVE         = 2;
-const TURN_DETMOVE          = 3;
-const TURN_CLUES            = 4;
-const TURN_JACK_WINS        = 5;
-const TURN_DETECTIVES_WIN   = 6;
+const TURN_JACK_START       = 0;
+const TURN_DET_START        = 1;
+const TURN_FIRST_MURDER     = 2;
+const TURN_JACKMOVE         = 3;
+const TURN_DETMOVE          = 4;
+const TURN_CLUES            = 5;
+const TURN_JACK_WINS        = 6;
+const TURN_DETECTIVES_WIN   = 7;
 
 const ACTION_CLUES  = 0;
 const ACTION_ARREST = 1;
@@ -190,17 +191,17 @@ function reset() {
     prevTime = 0;
 
     cs =  {
-        turn: TURN_FIRST_MURDER,
+        turn: TURN_JACK_START,
         round: 0,
-        chosenLocations: [32, 46, 147, 120],
+        chosenLocations: [], // [32, 46, 147, 120],
         jack: {
             moves: [],
             location: null
         },
         detectives: [
-            { location: 275, moved: false, acted: false, checked: [] },
-            { location: 298, moved: false, acted: false, checked: [] },
-            { location: 279, moved: false, acted: false, checked: [] },
+            { location: null, /*275*/ moved: false, acted: false, checked: [] },
+            { location: null, /*298*/ moved: false, acted: false, checked: [] },
+            { location: null, /*279*/ moved: false, acted: false, checked: [] },
         ],
         action: ACTION_CLUES,
         clues: [],
@@ -514,7 +515,7 @@ function draw() {
         }
 
         // chosen locations
-        if (cs.turn == TURN_CHOOSE_LOCATIONS || cs.turn == TURN_FIRST_MURDER) {
+        if (cs.turn == TURN_JACK_START || cs.turn == TURN_FIRST_MURDER) {
             if (cs.chosenLocations.includes(nodeIndex)) {
                 ctx.fillStyle = "hsla(0, 80%, 50%, 0.7)";
                 ctx.fill();
@@ -682,7 +683,8 @@ function draw() {
     }
 
     let msg = "";
-    if      (cs.turn == TURN_CHOOSE_LOCATIONS)  { msg = "Jack: choose murder locations"; }
+    if      (cs.turn == TURN_JACK_START)        { msg = "Jack: choose murder locations"; }
+    else if (cs.turn == TURN_DET_START)         { msg = "Detectives: choose your starting locations"; }
     else if (cs.turn == TURN_FIRST_MURDER)      { msg = "Jack: choose your first murder location"; }
     else if (cs.turn == TURN_JACKMOVE)          { msg = "Jack: choose your next move"; }
     else if (cs.turn == TURN_DETMOVE)           { msg = "Detectives: choose your moves"; }
@@ -922,7 +924,7 @@ function mousedown(e) {
             rightClickedNodeIndex = getNodeNear(e.clientX, e.clientY);
         }
     } else {
-        if (cs.turn == TURN_CHOOSE_LOCATIONS) {
+        if (cs.turn == TURN_JACK_START) {
             const chosenQuadrants = [false, false, false, false];
             cs.chosenLocations.forEach(ml => chosenQuadrants[graph[ml].quadrant-1] = true);
             const nodeIndex = getNodeNear(mouseX, mouseY);
@@ -933,8 +935,20 @@ function mousedown(e) {
                     !chosenQuadrants[graph[nodeIndex].quadrant-1]) {
                     cs.chosenLocations.push(nodeIndex);
                     if (cs.chosenLocations.length == 4) {
-                        cs.turn = TURN_FIRST_MURDER;
+                        cs.turn = TURN_DET_START;
                     }
+                }
+            }
+        } else if (cs.turn == TURN_DET_START) {
+            const nodeIndex = getNodeNear(mouseX, mouseY);
+            if (graph[nodeIndex].type == 'd' && graph[nodeIndex].starting) {
+                if (cs.detectives[0].location == null) {
+                    cs.detectives[0].location = nodeIndex;
+                } else if (cs.detectives[1].location == null) {
+                    cs.detectives[1].location = nodeIndex;
+                } else if (cs.detectives[2].location == null) {
+                    cs.detectives[2].location = nodeIndex;
+                    cs.turn = TURN_FIRST_MURDER;
                 }
             }
         } else if (cs.turn == TURN_FIRST_MURDER) {
