@@ -188,7 +188,7 @@ const graph = [
   { "type": "j", "pos": { "x": 9.4, "y": 10.4 }, "quadrant": 4, "neighbors": [ 328, 356 ], "boat": false },
   { "type": "j", "pos": { "x": 9.8, "y": 10.5 }, "quadrant": 4, "neighbors": [ 329, 357 ], "boat": false },
   { "type": "j", "pos": { "x": 10.3, "y": 10.9 }, "quadrant": 4, "neighbors": [ 329, 348 ], "boat": false },
-  { "type": "j", "pos": { "x": 1.5, "y": 11.2 }, "quadrant": 0, "neighbors": [ 345, 347 ], "boat": false },
+  { "type": "j", "pos": { "x": 1.5, "y": 11.2 }, "quadrant": 4, "neighbors": [ 345, 347 ], "boat": false },
   { "type": "d", "pos": { "x": 1, "y": 1.2 }, "starting": false, "neighbors": [ 208, 1, 8, 9 ] },
   { "type": "d", "pos": { "x": 1.8, "y": 0.8 }, "starting": false, "neighbors": [ 192, 1, 9, 11 ] },
   { "type": "d", "pos": { "x": 2.2, "y": 0.75 }, "starting": false, "neighbors": [ 191, 193, 12 ] },
